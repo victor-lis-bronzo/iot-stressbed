@@ -6,8 +6,8 @@ jest.mock('socket.io-client', () => ({
   io: jest.fn(),
 }));
 
-jest.mock('../lib/auth', () => ({
-  getToken: () => 'fake-token',
+jest.mock('next-auth/react', () => ({
+  useSession: () => ({ data: { accessToken: 'fake-token' }, status: 'authenticated' }),
 }));
 
 function createMockSocket() {

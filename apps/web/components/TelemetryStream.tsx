@@ -1,25 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { io, Socket } from 'socket.io-client';
-import { getToken } from '../lib/auth';
-
-interface TelemetryData {
-  sensorId: string;
-  temperature: number | null;
-  humidity: number | null;
-  broker: 'plain' | 'secure';
-  receivedAt: string;
-  topic: string;
-  raw: string;
-}
-
-interface Reading extends TelemetryData {
-  seq: number;
-}
+import { useEffect, useState } from 'react';
+import { useTelemetryStream, type Broker, type Reading } from '@/hooks/useTelemetryStream';
 
 interface Props {
-  broker: 'plain' | 'secure';
+  broker: Broker;
   title: string;
 }
 
@@ -76,40 +61,8 @@ function ReadingRow({ item }: { item: Reading }) {
 }
 
 export default function TelemetryStream({ broker, title }: Props) {
-  const [data, setData] = useState<Reading[]>([]);
-  const [connected, setConnected] = useState(false);
-  const seqRef = useRef(0);
-
+  const { readings, connected } = useTelemetryStream(broker);
   const accent = ACCENT[broker];
-
-  useEffect(() => {
-    const token = getToken();
-    const socket: Socket = io(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000', {
-      auth: { token },
-      transports: ['websocket'],
-    });
-
-    socket.on('connect', () => {
-      setConnected(true);
-    });
-
-    socket.on('disconnect', () => {
-      setConnected(false);
-    });
-
-    socket.on(`telemetry:${broker}`, (payload: TelemetryData) => {
-      setData((prev) => {
-        seqRef.current += 1;
-        const newData = [{ ...payload, seq: seqRef.current }, ...prev];
-        if (newData.length > 50) return newData.slice(0, 50);
-        return newData;
-      });
-    });
-
-    return () => {
-      socket.disconnect();
-    };
-  }, [broker]);
 
   return (
     <div className={`flex flex-col h-[600px] border ${accent.border} bg-panel overflow-hidden`}>
@@ -133,11 +86,11 @@ export default function TelemetryStream({ broker, title }: Props) {
       </div>
 
       <div className="flex-1 overflow-y-auto bg-base font-mono text-xs">
-        {data.length === 0 ? (
+        {readings.length === 0 ? (
           <div className="text-center text-muted mt-10">Aguardando dados...</div>
         ) : (
           <div>
-            {data.map((item) => (
+            {readings.map((item) => (
               <ReadingRow key={item.seq} item={item} />
             ))}
           </div>
