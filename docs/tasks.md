@@ -219,30 +219,17 @@ maior que isso na prática, quebrar mais). "Pronto quando" é sempre verificáve
 
 ## Fase 3 — Auditoria silenciosa / instrumentação
 
-### Telegraf + cAdvisor escrevendo `broker_metrics`
-- Pronto quando: métricas de CPU/RAM/conexões dos containers de broker aparecem
-  no InfluxDB, taggeadas com `run_id` e `broker`.
-- Depende de: Compose telegraf.
-- Tamanho: M.
+### ~~Telegraf escrevendo `broker_metrics`~~ — feito na Fase 0.5
+- Antecipado durante a fundação de infra: telegraf (input `docker`, sem cAdvisor
+  separado) já escreve `broker_metrics` no InfluxDB, taggeado com `broker` e
+  `run_id`, e já foi verificado que continua funcionando com o `nestjs-api`
+  desligado (prova o ADR-0003). Ver `docs/test-plans/fase-0.5-infra.md`.
 
 ### Provisionar dashboards Grafana
 - Pronto quando: existe pelo menos um dashboard Grafana lendo `broker_metrics`,
-  versionado em `infra/grafana/dashboards/`.
-- Depende de: Telegraf + cAdvisor escrevendo broker_metrics.
-- Tamanho: M.
-
-### Validar caminho de métrica independente do NestJS
-- Pronto quando: com o `nestjs-api` parado, o telegraf continua escrevendo
-  `broker_metrics` normalmente no InfluxDB.
-- Depende de: Telegraf + cAdvisor escrevendo broker_metrics.
-- Tamanho: P.
-- Teste: manual — parar o container `nestjs-api` e confirmar que as métricas
-  continuam chegando (prova o ADR-0003).
-
-### Tagging de `run_id` nas escritas do telegraf
-- Pronto quando: cada execução de experimento propaga o `run_id` ativo (resolvido
-  via `experiments`) como tag nas escritas de `broker_metrics`.
-- Depende de: Telegraf + cAdvisor escrevendo broker_metrics, Módulo experiments.
+  versionado em `infra/grafana/dashboards/`. (O datasource InfluxDB↔Grafana já foi
+  provisionado e verificado na Fase 0.5 — falta apenas o(s) dashboard(s) em si.)
+- Depende de: nenhuma (datasource já pronto).
 - Tamanho: M.
 
 ---

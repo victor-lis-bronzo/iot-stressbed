@@ -29,7 +29,7 @@ Detalhamento completo de escopo/KPIs/arquitetura em `docs/spec.md` e `docs/archi
 - **Telemetria**: o dado de domínio do sensor (temperatura/umidade), capturado pelo módulo
   `capture` e gravado no InfluxDB. É o que o subscriber malicioso está roubando/forjando.
 - **Métrica**: a saúde do broker/host (CPU, RAM, conexões, latência) sob ataque, coletada
-  por telegraf/cAdvisor. Nunca confundir telemetria (dado do sensor) com métrica (saúde
+  por telegraf (input `docker`). Nunca confundir telemetria (dado do sensor) com métrica (saúde
   do sistema) — são measurements diferentes no InfluxDB com propósitos científicos distintos.
 - **Track A**: linha de experimento de confidencialidade/integridade — eavesdropping e
   injeção/spoofing.
@@ -42,7 +42,7 @@ Detalhamento completo de escopo/KPIs/arquitetura em `docs/spec.md` e `docs/archi
   (NestJS `capture` → InfluxDB) nunca é a fonte das métricas do broker durante o Track B.
   Por quê: se o mesmo caminho medisse os dois, um flooding derrubaria primeiro o
   gargalo de I/O do app, mascarando a resistência real do broker. As métricas de saúde
-  vêm de telegraf/cAdvisor raspando o container por fora, sem passar pelo NestJS.
+  vêm de telegraf (input `docker`) raspando o container por fora, sem passar pelo NestJS.
 - **InfluxDB + Grafana para série temporal**, Postgres estritamente para estado da
   aplicação (usuários, sensores registrados, metadados de run). Por quê: Mongo/Firebase
   não são feitos para ingestão massiva de séries temporais e criariam gargalo de banco
