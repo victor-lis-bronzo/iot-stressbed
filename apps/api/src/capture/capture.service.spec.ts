@@ -1,66 +1,69 @@
-import { ConfigService } from '@nestjs/config';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ExperimentsService } from '../experiments/experiments.service';
 import { CaptureService } from './capture.service';
 import { TELEMETRY_CAPTURED } from './capture.tokens';
-import { TelemetryPoint } from './ports/telemetry';
+import { BrokerLabel, TelemetryPoint } from './ports/telemetry';
 import { FakeMqttSubscriber } from './testing/fake-mqtt-subscriber';
 import { FakeTelemetrySink } from './testing/fake-telemetry-sink';
 
-function configFor(overrides: Record<string, string> = {}): ConfigService {
-  const values: Record<string, string> = {
-    CAPTURE_BROKER: 'plain',
-    CAPTURE_TOPIC: '#',
-    CAPTURE_ENABLED: 'true',
-    ...overrides,
-  };
-  return {
-    get: (key: string, fallback?: unknown) => values[key] ?? fallback,
-  } as unknown as ConfigService;
-}
-
 describe('CaptureService', () => {
-  let subscriber: FakeMqttSubscriber;
-  let sink: FakeTelemetrySink;
+  let plainSubscriber: FakeMqttSubscriber;
+  let secureSubscriber: FakeMqttSubscriber;
+  let plainSink: FakeTelemetrySink;
+  let secureSink: FakeTelemetrySink;
   let events: EventEmitter2;
   let experiments: { resolveCaptureContext: jest.Mock };
-  let service: CaptureService;
+  let plain: CaptureService;
+  let secure: CaptureService;
+
+  function build(
+    broker: BrokerLabel,
+    subscriber: FakeMqttSubscriber,
+    sink: FakeTelemetrySink,
+  ): CaptureService {
+    return new CaptureService(
+      { broker, topicFilter: '#', enabled: true },
+      subscriber,
+      sink,
+      experiments as unknown as ExperimentsService,
+      events,
+    );
+  }
 
   beforeEach(async () => {
-    subscriber = new FakeMqttSubscriber();
-    sink = new FakeTelemetrySink();
+    plainSubscriber = new FakeMqttSubscriber();
+    secureSubscriber = new FakeMqttSubscriber();
+    plainSink = new FakeTelemetrySink();
+    secureSink = new FakeTelemetrySink();
     events = new EventEmitter2();
     experiments = {
       resolveCaptureContext: jest
         .fn()
         .mockResolvedValue({ runId: 'run-1', source: 'legit' }),
     };
-    service = new CaptureService(
-      subscriber,
-      sink,
-      experiments as unknown as ExperimentsService,
-      events,
-      configFor(),
-    );
-    await service.onModuleInit();
+    plain = build('plain', plainSubscriber, plainSink);
+    secure = build('secure', secureSubscriber, secureSink);
+    await plain.onModuleInit();
+    await secure.onModuleInit();
   });
 
-  it('subscribes to # on init', () => {
-    expect(subscriber.connected).toBe(true);
+  it('subscribes both brokers to # on init', () => {
+    expect(plainSubscriber.connected).toBe(true);
+    expect(secureSubscriber.connected).toBe(true);
   });
 
   it('normalizes and persists exactly the messages published, tagged correctly', async () => {
-    await subscriber.publish({
+    await plainSubscriber.publish({
       topic: 'sensors/esp32-01/telemetry',
       payload: JSON.stringify({ temperature: 24.5, humidity: 60.2 }),
     });
-    await subscriber.publish({
+    await plainSubscriber.publish({
       topic: 'sensors/esp32-02/telemetry',
       payload: JSON.stringify({ temperature: 19.1, humidity: 71 }),
     });
 
-    expect(sink.points).toHaveLength(2);
-    const [first] = sink.points;
+    expect(plainSink.points).toHaveLength(2);
+    const [first] = plainSink.points;
     expect(first).toMatchObject<Partial<TelemetryPoint>>({
       sensorId: 'esp32-01',
       temperature: 24.5,
@@ -69,34 +72,34 @@ describe('CaptureService', () => {
       runId: 'run-1',
       source: 'legit',
     });
-    expect(sink.points[1].sensorId).toBe('esp32-02');
+    expect(plainSink.points[1].sensorId).toBe('esp32-02');
   });
 
   it('emits one realtime event per captured message', async () => {
     const received: TelemetryPoint[] = [];
     events.on(TELEMETRY_CAPTURED, (p: TelemetryPoint) => received.push(p));
 
-    await subscriber.publish({
+    await plainSubscriber.publish({
       topic: 'sensors/esp32-01/telemetry',
       payload: JSON.stringify({ temperature: 20, humidity: 50 }),
     });
-    await subscriber.publish({
+    await plainSubscriber.publish({
       topic: 'sensors/esp32-01/telemetry',
       payload: JSON.stringify({ temperature: 21, humidity: 51 }),
     });
 
     expect(received).toHaveLength(2);
-    expect(received).toEqual(sink.points);
+    expect(received).toEqual(plainSink.points);
   });
 
   it('records a malformed payload as raw with null readings', async () => {
-    await subscriber.publish({
+    await plainSubscriber.publish({
       topic: 'sensors/esp32-01/telemetry',
       payload: 'not-json-garbage',
     });
 
-    expect(sink.points).toHaveLength(1);
-    expect(sink.points[0]).toMatchObject({
+    expect(plainSink.points).toHaveLength(1);
+    expect(plainSink.points[0]).toMatchObject({
       temperature: null,
       humidity: null,
       raw: 'not-json-garbage',
@@ -108,24 +111,73 @@ describe('CaptureService', () => {
       runId: 'run-A',
       source: 'injected',
     });
-    await subscriber.publish({
+    await plainSubscriber.publish({
       topic: 'sensors/esp32-01/telemetry',
       payload: JSON.stringify({ temperature: 99, humidity: 1 }),
     });
-    expect(sink.points[0].source).toBe('injected');
-    expect(sink.points[0].runId).toBe('run-A');
+    expect(plainSink.points[0].source).toBe('injected');
+    expect(plainSink.points[0].runId).toBe('run-A');
   });
 
   it('records a capture_meta event on connection loss instead of failing silently', async () => {
-    subscriber.dropConnection('broker down during flood');
+    plainSubscriber.dropConnection('broker down during flood');
     await new Promise((r) => setImmediate(r));
 
-    expect(sink.metaEvents).toHaveLength(1);
-    expect(sink.metaEvents[0]).toMatchObject({
+    expect(plainSink.metaEvents).toHaveLength(1);
+    expect(plainSink.metaEvents[0]).toMatchObject({
       event: 'disconnect',
       broker: 'plain',
       runId: 'run-1',
       reason: 'broker down during flood',
     });
+    expect(secureSink.metaEvents).toHaveLength(0);
+  });
+
+  it('keeps the two broker streams independent: neither instance sees the other broker traffic', async () => {
+    await plainSubscriber.publish({
+      topic: 'sensors/esp32-01/telemetry',
+      payload: JSON.stringify({ temperature: 24.5, humidity: 60.2 }),
+    });
+    await secureSubscriber.publish({
+      topic: 'sensors/esp32-02/telemetry',
+      payload: JSON.stringify({ temperature: 19.1, humidity: 71 }),
+    });
+
+    expect(plainSink.points).toHaveLength(1);
+    expect(plainSink.points[0]).toMatchObject({
+      sensorId: 'esp32-01',
+      broker: 'plain',
+    });
+    expect(secureSink.points).toHaveLength(1);
+    expect(secureSink.points[0]).toMatchObject({
+      sensorId: 'esp32-02',
+      broker: 'secure',
+    });
+  });
+
+  it('emits both streams on the same event bus, each tagged with its own broker', async () => {
+    const received: TelemetryPoint[] = [];
+    events.on(TELEMETRY_CAPTURED, (p: TelemetryPoint) => received.push(p));
+
+    await secureSubscriber.publish({
+      topic: 'sensors/esp32-02/telemetry',
+      payload: JSON.stringify({ temperature: 19.1, humidity: 71 }),
+    });
+    await plainSubscriber.publish({
+      topic: 'sensors/esp32-01/telemetry',
+      payload: JSON.stringify({ temperature: 24.5, humidity: 60.2 }),
+    });
+
+    expect(received.map((p) => p.broker)).toEqual(['secure', 'plain']);
+  });
+
+  it('disconnects each subscriber independently on shutdown', async () => {
+    await plain.onModuleDestroy();
+
+    expect(plainSubscriber.connected).toBe(false);
+    expect(secureSubscriber.connected).toBe(true);
+
+    await secure.onModuleDestroy();
+    expect(secureSubscriber.connected).toBe(false);
   });
 });
