@@ -67,6 +67,35 @@ services:
 
     # $$ escapa a interpolação do Compose para que o shell do container receba
     # $SYS literal.
+    # ----------------------------------------------------------------------- #
+    # ISOLAMENTO DE RECURSOS (ADR-0004) — requisito não-funcional mais crítico
+    # do projeto. Sem estes limites, um flood do Track B satura CPU/RAM/PIDs do
+    # host, derruba a stack de observação junto com o broker e torna impossível
+    # distinguir "o broker caiu" de "a máquina toda travou".
+    # Todos os valores vêm do .env (user story 10 da spec).
+    # ----------------------------------------------------------------------- #
+
+    # Núcleos FIXOS (--cpuset-cpus). Não inclui os núcleos da stack de
+    # observação (STACK_CPUSET) nem os do atacante (ATTACKER_CPUSET): é essa
+    # exclusão que reserva CPU para o host e mantém Grafana/InfluxDB coletando
+    # com o broker saturado.
+    cpuset: ${BROKER_PLAIN_CPUSET:-2}
+
+    # Teto de CPU (--cpus). Mesmo dentro do cpuset, o broker não consome mais
+    # que esta fração — deixa margem no próprio núcleo.
+    cpus: ${BROKER_PLAIN_CPUS:-1.0}
+
+    # Memória (--memory) e, IGUAL a ela, o limite de memória+swap
+    # (--memory-swap). Iguais = swap zero para o container: o ponto de OOM fica
+    # determinístico e não é mascarado por paginação em disco (user story 3).
+    # NUNCA aumente MEMSWAP acima de MEMORY.
+    mem_limit: ${BROKER_PLAIN_MEMORY:-256m}
+    memswap_limit: ${BROKER_PLAIN_MEMSWAP:-256m}
+
+    # Teto de processos/threads (--pids-limit): contém a explosão de tarefas
+    # induzida por um connection flood antes que ela esgote os PIDs do host.
+    pids_limit: ${BROKER_PLAIN_PIDS:-512}
+
     healthcheck:
       test: ["CMD-SHELL", "mosquitto_sub -h 127.0.0.1 -p 1883 -t '$$SYS/broker/uptime' -C 1 -W 3 >/dev/null 2>&1"]
       interval: 10s
@@ -118,6 +147,35 @@ services:
     # Healthcheck exercita o caminho completo do grupo de controle: TLS
     # (validando o certificado do servidor contra a CA), autenticação por
     # senha e a ACL de leitura de $SYS. `localhost` está no SAN do certificado.
+    # ----------------------------------------------------------------------- #
+    # ISOLAMENTO DE RECURSOS (ADR-0004) — requisito não-funcional mais crítico
+    # do projeto. Sem estes limites, um flood do Track B satura CPU/RAM/PIDs do
+    # host, derruba a stack de observação junto com o broker e torna impossível
+    # distinguir "o broker caiu" de "a máquina toda travou".
+    # Todos os valores vêm do .env (user story 10 da spec).
+    # ----------------------------------------------------------------------- #
+
+    # Núcleos FIXOS (--cpuset-cpus). Não inclui os núcleos da stack de
+    # observação (STACK_CPUSET) nem os do atacante (ATTACKER_CPUSET): é essa
+    # exclusão que reserva CPU para o host e mantém Grafana/InfluxDB coletando
+    # com o broker saturado.
+    cpuset: ${BROKER_SECURE_CPUSET:-3}
+
+    # Teto de CPU (--cpus). Mesmo dentro do cpuset, o broker não consome mais
+    # que esta fração — deixa margem no próprio núcleo.
+    cpus: ${BROKER_SECURE_CPUS:-1.0}
+
+    # Memória (--memory) e, IGUAL a ela, o limite de memória+swap
+    # (--memory-swap). Iguais = swap zero para o container: o ponto de OOM fica
+    # determinístico e não é mascarado por paginação em disco (user story 3).
+    # NUNCA aumente MEMSWAP acima de MEMORY.
+    mem_limit: ${BROKER_SECURE_MEMORY:-256m}
+    memswap_limit: ${BROKER_SECURE_MEMSWAP:-256m}
+
+    # Teto de processos/threads (--pids-limit): contém a explosão de tarefas
+    # induzida por um connection flood antes que ela esgote os PIDs do host.
+    pids_limit: ${BROKER_SECURE_PIDS:-512}
+
     healthcheck:
       test:
         - CMD-SHELL
