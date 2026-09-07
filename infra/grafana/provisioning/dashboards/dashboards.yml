@@ -1,0 +1,16 @@
+# Carrega dashboards versionados de infra/grafana/dashboards/ (JSON).
+# Nenhum dashboard nesta fase — os painéis de Track A/B chegam nas fases
+# seguintes; o provider já fica pronto para recebê-los.
+apiVersion: 1
+
+providers:
+  - name: stressbed
+    orgId: 1
+    folder: IoT StressBed
+    type: file
+    disableDeletion: false
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

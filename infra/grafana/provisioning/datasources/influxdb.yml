@@ -1,0 +1,25 @@
+# Datasource do InfluxDB provisionado automaticamente — evita clicar na UI a
+# cada ambiente novo (reprodutibilidade, docs/specs/infra-resource-isolation.md).
+#
+# Usa a linguagem Flux (InfluxDB 2.x), autenticando pelo token do .env.
+apiVersion: 1
+
+datasources:
+  - name: InfluxDB
+    uid: stressbed-influxdb
+    type: influxdb
+    access: proxy
+    # Nome de serviço na rede stressbed-net, não localhost: o Grafana consulta
+    # o InfluxDB de dentro da rede bridge.
+    url: http://influxdb:8086
+    isDefault: true
+    jsonData:
+      version: Flux
+      organization: ${INFLUXDB_ORG}
+      defaultBucket: ${INFLUXDB_BUCKET}
+      # Resolução mínima coerente com TELEGRAF_INTERVAL.
+      timeInterval: 5s
+      tlsSkipVerify: true
+    secureJsonData:
+      token: ${INFLUXDB_TOKEN}
+    editable: false

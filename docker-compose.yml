@@ -130,3 +130,139 @@ services:
       timeout: 8s
       retries: 3
       start_period: 5s
+
+  # ========================================================================= #
+  # postgres — estado da aplicação (usuários, sensores, metadados de run)
+  # ========================================================================= #
+  # NUNCA telemetria: série temporal vive no InfluxDB (ADR-0001).
+  postgres:
+    image: postgres:16-alpine
+    container_name: stressbed-postgres
+    hostname: postgres
+
+    restart: unless-stopped
+
+    # Só em 127.0.0.1: ao contrário dos brokers (que o ESP32 acessa pela LAN),
+    # nada aqui deve ser alcançável de fora da máquina.
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?defina POSTGRES_USER no .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      POSTGRES_DB: ${POSTGRES_DB:?defina POSTGRES_DB no .env}
+
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+    networks:
+      - stressbed-net
+
+    # Núcleos reservados: a stack de observação não compete com o broker pelos
+    # mesmos núcleos (ADR-0004, user story 5 da spec).
+    cpuset: ${STACK_CPUSET:-0,1}
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ========================================================================= #
+  # influxdb — série temporal: `telemetry`, `capture_meta` (via nestjs-api,
+  # Fase 1) e `broker_metrics` (via telegraf, caminho independente — ADR-0003)
+  # ========================================================================= #
+  influxdb:
+    image: influxdb:2.7-alpine
+    container_name: stressbed-influxdb
+    hostname: influxdb
+
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:${INFLUXDB_PORT:-8086}:8086"
+
+    environment:
+      # Bootstrap automático na primeira subida (cria org, bucket e token).
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUXDB_ADMIN_USER:?defina INFLUXDB_ADMIN_USER no .env}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_ADMIN_PASSWORD:?defina INFLUXDB_ADMIN_PASSWORD no .env}
+      DOCKER_INFLUXDB_INIT_ORG: ${INFLUXDB_ORG:?defina INFLUXDB_ORG no .env}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUXDB_BUCKET:?defina INFLUXDB_BUCKET no .env}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_TOKEN:?defina INFLUXDB_TOKEN no .env}
+      DOCKER_INFLUXDB_INIT_RETENTION: ${INFLUXDB_RETENTION:-0s}
+
+    volumes:
+      - influxdb-data:/var/lib/influxdb2
+      - influxdb-config:/etc/influxdb2
+      # Scripts opcionais rodados no bootstrap (vazio nesta fase).
+      - ./infra/influxdb/init:/docker-entrypoint-initdb.d:ro
+
+    networks:
+      - stressbed-net
+
+    cpuset: ${STACK_CPUSET:-0,1}
+
+    healthcheck:
+      test: ["CMD", "influx", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ========================================================================= #
+  # grafana — visualização de telemetria e de broker_metrics
+  # ========================================================================= #
+  grafana:
+    image: grafana/grafana:11.6.0
+    container_name: stressbed-grafana
+    hostname: grafana
+
+    restart: unless-stopped
+
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3001}:3000"
+
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?defina GRAFANA_ADMIN_USER no .env}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?defina GRAFANA_ADMIN_PASSWORD no .env}
+      # Sem acesso anônimo, coerente com ADR-0005 (nada do painel é público).
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      # Consumidas pelo datasource provisionado (infra/grafana/provisioning).
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN}
+      INFLUXDB_ORG: ${INFLUXDB_ORG}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET}
+
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+
+    networks:
+      - stressbed-net
+
+    cpuset: ${STACK_CPUSET:-0,1}
+
+    depends_on:
+      influxdb:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+# --------------------------------------------------------------------------- #
+# Volumes
+# --------------------------------------------------------------------------- #
+volumes:
+  postgres-data:
+  influxdb-data:
+  influxdb-config:
+  grafana-data:
