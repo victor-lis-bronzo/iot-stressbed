@@ -26,30 +26,29 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div className="flex h-screen bg-gray-100 dark:bg-zinc-900">
+    <div className="flex h-screen bg-base font-sans">
       {/* Sidebar */}
-      <aside className="w-64 bg-white dark:bg-zinc-800 border-r border-gray-200 dark:border-zinc-700 hidden md:flex flex-col">
-        <div className="h-16 flex items-center px-6 border-b border-gray-200 dark:border-zinc-700">
-          <h1 className="text-lg font-bold text-gray-900 dark:text-white">IoT StressBed</h1>
+      <aside className="w-64 bg-panel border-r border-border hidden md:flex flex-col">
+        <div className="h-14 flex items-center px-5 border-b border-border">
+          <h1 className="text-sm font-semibold tracking-tight text-primary">IoT StressBed</h1>
         </div>
-        
-        <nav className="flex-1 px-4 py-4 space-y-1 overflow-y-auto">
+
+        <nav className="flex-1 px-2 py-3 space-y-px overflow-y-auto">
           {navItems.map((item) => {
             const isActive = pathname.startsWith(item.href);
             return (
               <Link
                 key={item.name}
                 href={item.href}
-                className={`flex items-center px-2 py-2 text-sm font-medium rounded-md ${
+                aria-current={isActive ? 'page' : undefined}
+                className={`flex items-center gap-3 rounded border-l-2 px-3 py-2 text-sm ${
                   isActive
-                    ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-100'
-                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-zinc-700 dark:hover:text-white'
+                    ? 'border-border bg-base font-medium text-primary'
+                    : 'border-transparent text-muted hover:bg-base hover:text-primary'
                 }`}
               >
                 <item.icon
-                  className={`mr-3 flex-shrink-0 h-5 w-5 ${
-                    isActive ? 'text-blue-700 dark:text-blue-100' : 'text-gray-400 group-hover:text-gray-500 dark:text-gray-400'
-                  }`}
+                  className={`h-4 w-4 flex-shrink-0 ${isActive ? 'text-primary' : 'text-muted'}`}
                   aria-hidden="true"
                 />
                 {item.name}
@@ -58,12 +57,12 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           })}
         </nav>
 
-        <div className="p-4 border-t border-gray-200 dark:border-zinc-700">
+        <div className="p-2 border-t border-border">
           <button
             onClick={handleLogout}
-            className="flex items-center w-full px-2 py-2 text-sm font-medium text-red-600 rounded-md hover:bg-red-50 dark:text-red-400 dark:hover:bg-zinc-700"
+            className="flex w-full items-center gap-3 rounded px-3 py-2 text-sm text-muted hover:bg-base hover:text-critical"
           >
-            <LogOut className="mr-3 h-5 w-5" />
+            <LogOut className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
             Sair
           </button>
         </div>
@@ -71,10 +70,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
       {/* Main content */}
       <main className="flex-1 flex flex-col overflow-hidden">
-        <header className="h-16 bg-white dark:bg-zinc-800 border-b border-gray-200 dark:border-zinc-700 md:hidden flex items-center justify-between px-4">
-          <h1 className="text-lg font-bold text-gray-900 dark:text-white">IoT StressBed</h1>
+        <header className="h-14 bg-panel border-b border-border md:hidden flex items-center justify-between px-4">
+          <h1 className="text-sm font-semibold tracking-tight text-primary">IoT StressBed</h1>
         </header>
-        <div className="flex-1 overflow-y-auto p-6 bg-gray-50 dark:bg-zinc-900">
+        <div className="flex-1 overflow-y-auto bg-base p-6">
           {children}
         </div>
       </main>
