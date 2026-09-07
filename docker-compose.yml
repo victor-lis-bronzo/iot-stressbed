@@ -1,0 +1,4 @@
+# Placeholder — orquestração dos containers descritos em docs/architecture.md.
+# Serviços a definir: mosquitto-plain, mosquitto-secure, postgres, influxdb, grafana,
+# telegraf, nestjs-api, nextjs-web, attacker. Rede bridge dedicada `stressbed-net`.
+# Limites de recurso (cpuset/cpus/memory/pids-limit) por serviço: ver docs/adr/0004-*.md.
