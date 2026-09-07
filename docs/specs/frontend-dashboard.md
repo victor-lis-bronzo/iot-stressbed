@@ -41,9 +41,9 @@ entre runs.
 8. Como pesquisador, quero registrar um sensor no sistema (via `sensors` module) através
    de um formulário simples, para poder identificar de qual dispositivo físico vêm os
    dados exibidos.
-9. Como pesquisador, quero fazer login no dashboard (via `auth`/JWT), para que o console
-   de ataque e o histórico de experimentos não fiquem acessíveis sem autenticação básica
-   (mesmo sendo um ambiente de laboratório, não de produção).
+9. Como pesquisador, quero fazer login no dashboard (via `auth`/JWT) para acessar
+   qualquer página, incluindo a visão ao vivo do baseline, o console de ataque e o
+   histórico de experimentos — nada fica acessível sem autenticação.
 10. Como pesquisador, quero que a latência entre a chegada de um dado no backend e sua
     exibição no dashboard seja perceptivelmente baixa (p95 < 1s no baseline), para que a
     visão "ao vivo" seja de fato ao vivo.
@@ -62,9 +62,9 @@ entre runs.
   provisionados em `infra/grafana/`) em vez de o frontend reimplementar gráficos de série
   temporal de métricas de infraestrutura — telemetria de sensor (dado de domínio) pode ter
   visualização própria no Next.js, métricas de broker (infraestrutura) reusam Grafana.
-- Autenticação via JWT emitido pelo módulo `auth`, guardando rotas do console de ataque e
-  do histórico de experimentos; a view de telemetria ao vivo do baseline pode ser pública
-  (é a demonstração da vulnerabilidade, não um dado sensível de produção).
+- Autenticação via JWT emitido pelo módulo `auth`, guardando **todas** as rotas do
+  dashboard, sem exceção — incluindo a view de telemetria ao vivo do baseline. Não há
+  área pública.
 - O console de ataque chama endpoints do módulo `experiments` para iniciar/parar uma run;
   o frontend não dispara ataques diretamente contra o broker — toda orquestração de
   ataque passa pelo backend, que sabe registrar o `run_id` e coordenar com o container
