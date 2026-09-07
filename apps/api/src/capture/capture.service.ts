@@ -1,45 +1,32 @@
-import {
-  Inject,
-  Injectable,
-  Logger,
-  OnModuleDestroy,
-  OnModuleInit,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ExperimentsService } from '../experiments/experiments.service';
-import {
-  MQTT_SUBSCRIBER,
-  TELEMETRY_CAPTURED,
-  TELEMETRY_SINK,
-} from './capture.tokens';
+import { TELEMETRY_CAPTURED } from './capture.tokens';
 import { MqttSubscriberPort, RawMqttMessage } from './ports/mqtt-subscriber.port';
 import { TelemetrySinkPort } from './ports/telemetry-sink.port';
 import { BrokerLabel, TelemetryPoint } from './ports/telemetry';
 
-@Injectable()
+export interface CaptureOptions {
+  broker: BrokerLabel;
+  topicFilter: string;
+  enabled: boolean;
+}
+
 export class CaptureService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(CaptureService.name);
-  private readonly broker: BrokerLabel;
-  private readonly topicFilter: string;
-  private readonly enabled: boolean;
+  private readonly logger: Logger;
 
   constructor(
-    @Inject(MQTT_SUBSCRIBER)
+    private readonly options: CaptureOptions,
     private readonly subscriber: MqttSubscriberPort,
-    @Inject(TELEMETRY_SINK)
     private readonly sink: TelemetrySinkPort,
     private readonly experiments: ExperimentsService,
     private readonly events: EventEmitter2,
-    config: ConfigService,
   ) {
-    this.broker = config.get<BrokerLabel>('CAPTURE_BROKER', 'plain');
-    this.topicFilter = config.get<string>('CAPTURE_TOPIC', '#');
-    this.enabled = config.get<string>('CAPTURE_ENABLED', 'true') !== 'false';
+    this.logger = new Logger(`${CaptureService.name}:${options.broker}`);
   }
 
   async onModuleInit() {
-    if (!this.enabled) {
+    if (!this.options.enabled) {
       this.logger.warn('capture disabled (CAPTURE_ENABLED=false)');
       return;
     }
@@ -47,16 +34,16 @@ export class CaptureService implements OnModuleInit, OnModuleDestroy {
       void this.handleConnectionLost(reason);
     });
     await this.subscriber.connect();
-    await this.subscriber.subscribe(this.topicFilter, (msg) =>
+    await this.subscriber.subscribe(this.options.topicFilter, (msg) =>
       this.handleMessage(msg),
     );
     this.logger.log(
-      `capturing ${this.topicFilter} from ${this.broker} broker`,
+      `capturing ${this.options.topicFilter} from ${this.options.broker} broker`,
     );
   }
 
   async onModuleDestroy() {
-    if (this.enabled) {
+    if (this.options.enabled) {
       await this.subscriber.disconnect();
     }
   }
@@ -73,7 +60,7 @@ export class CaptureService implements OnModuleInit, OnModuleDestroy {
     this.logger.error(`broker connection lost: ${reason}`);
     await this.sink.writeMeta({
       event: 'disconnect',
-      broker: this.broker,
+      broker: this.options.broker,
       runId,
       reason,
       at: new Date(),
@@ -91,7 +78,7 @@ export class CaptureService implements OnModuleInit, OnModuleDestroy {
       temperature,
       humidity,
       receivedAt: new Date(),
-      broker: this.broker,
+      broker: this.options.broker,
       runId,
       source,
       topic: message.topic,
