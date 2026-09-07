@@ -9,9 +9,12 @@
 #   passwd      — hash gerado por mosquitto_passwd a partir de
 #                 MQTT_SECURE_USERNAME / MQTT_SECURE_PASSWORD (vindas do .env)
 #   acl         — acl.template com __MQTT_USER__ substituído
-#   ca.crt      — cópia dos certificados montados em /mosquitto/certs (ro),
-#   server.crt    reemitidos com dono/modo corretos para o uid do broker
+#   ca.crt          — cópia dos certificados montados em /mosquitto/certs (ro),
+#   server.crt        reemitidos com dono/modo corretos para o uid do broker
 #   server.key
+#   client-test.crt — certificado de CLIENTE usado pelo healthcheck do
+#   client-test.key   container: com mTLS obrigatório (ADR-0007) o próprio
+#                     healthcheck precisa se autenticar por certificado
 #
 # Por que copiar os certificados em vez de lê-los direto do bind mount:
 # num host Linux os arquivos gerados por scripts/gen-certs.sh pertencem ao
@@ -24,7 +27,8 @@
 # diretiva `user mosquitto` em mosquitto.conf faz o próprio broker largar
 # privilégio depois de abrir a porta 8883.
 #
-# Ver: docs/specs/infra-resource-isolation.md
+# Ver: docs/specs/infra-resource-isolation.md,
+#      docs/adr/0007-mtls-on-secure-broker.md
 
 set -eu
 
@@ -50,7 +54,9 @@ case "${MQTT_SECURE_USERNAME}" in
     ;;
 esac
 
-for f in ca.crt server.crt server.key; do
+# client-test.* entram na lista porque o broker exige mTLS (ADR-0007) e o
+# healthcheck deste container é, ele mesmo, um cliente MQTT.
+for f in ca.crt server.crt server.key client-test.crt client-test.key; do
   [ -s "${CERT_SRC_DIR}/${f}" ] || \
     fail "certificado ausente ou vazio: ${CERT_SRC_DIR}/${f} — rode ./scripts/gen-certs.sh no host antes de subir a stack."
 done
@@ -71,8 +77,10 @@ mkdir -p "${RUNTIME_DIR}"
 cp "${CERT_SRC_DIR}/ca.crt"     "${RUNTIME_DIR}/ca.crt"
 cp "${CERT_SRC_DIR}/server.crt" "${RUNTIME_DIR}/server.crt"
 cp "${CERT_SRC_DIR}/server.key" "${RUNTIME_DIR}/server.key"
-chmod 644 "${RUNTIME_DIR}/ca.crt" "${RUNTIME_DIR}/server.crt"
-chmod 600 "${RUNTIME_DIR}/server.key"
+cp "${CERT_SRC_DIR}/client-test.crt" "${RUNTIME_DIR}/client-test.crt"
+cp "${CERT_SRC_DIR}/client-test.key" "${RUNTIME_DIR}/client-test.key"
+chmod 644 "${RUNTIME_DIR}/ca.crt" "${RUNTIME_DIR}/server.crt" "${RUNTIME_DIR}/client-test.crt"
+chmod 600 "${RUNTIME_DIR}/server.key" "${RUNTIME_DIR}/client-test.key"
 log "certificados copiados de ${CERT_SRC_DIR}."
 
 # --------------------------------------------------------------------------- #

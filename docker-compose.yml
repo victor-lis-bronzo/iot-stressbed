@@ -144,9 +144,12 @@ services:
         max-size: "10m"
         max-file: "3"
 
-    # Healthcheck exercita o caminho completo do grupo de controle: TLS
-    # (validando o certificado do servidor contra a CA), autenticação por
-    # senha e a ACL de leitura de $SYS. `localhost` está no SAN do certificado.
+    # Healthcheck exercita o caminho completo do grupo de controle: mTLS
+    # (valida o certificado do servidor contra a CA E apresenta o próprio
+    # certificado de cliente, exigido por ADR-0007), autenticação por senha e a
+    # ACL de leitura de $SYS. `localhost` está no SAN do certificado do servidor.
+    # Usa /mosquitto/runtime (cópia feita pelo entrypoint, dono correto) em vez
+    # do bind mount, pelo mesmo motivo que o broker — ver docker-entrypoint.sh.
     # ----------------------------------------------------------------------- #
     # ISOLAMENTO DE RECURSOS (ADR-0004) — requisito não-funcional mais crítico
     # do projeto. Sem estes limites, um flood do Track B satura CPU/RAM/PIDs do
@@ -180,7 +183,9 @@ services:
       test:
         - CMD-SHELL
         - >
-          mosquitto_sub --cafile /mosquitto/certs/ca.crt
+          mosquitto_sub --cafile /mosquitto/runtime/ca.crt
+          --cert /mosquitto/runtime/client-test.crt
+          --key /mosquitto/runtime/client-test.key
           -h localhost -p 8883
           -u "$$MQTT_SECURE_USERNAME" -P "$$MQTT_SECURE_PASSWORD"
           -t '$$SYS/broker/uptime' -C 1 -W 3 >/dev/null 2>&1

@@ -23,9 +23,10 @@
 #   Separar o certificado do componente de produção do testbed (`capture`, que
 #   roda continuamente e assina a telemetria) do certificado usado em
 #   experimentação manual (`mosquitto_pub/sub` do pesquisador, healthcheck do
-#   container, depuração) mantém uma identidade por papel: revogar/regerar o
-#   certificado de teste não derruba a coleta, e os logs do broker mostram qual
-#   papel abriu cada conexão (o CN aparece nas mensagens de TLS do mosquitto).
+#   container, depuração) mantém uma identidade por papel: regerar o
+#   certificado de teste não derruba a coleta, e cada credencial de máquina
+#   fica com escopo de uso claro (o mosquitto não loga o CN do cliente, mas o
+#   arquivo em uso identifica o papel de quem conectou).
 #   Ambos são assinados pela MESMA CA local e são, do ponto de vista do broker,
 #   igualmente válidos — a separação é operacional, não de autorização (a
 #   autorização continua vindo de usuário/senha + ACL).
