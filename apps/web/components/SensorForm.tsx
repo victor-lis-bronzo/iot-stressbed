@@ -70,7 +70,7 @@ export default function SensorForm({ onSuccess }: { onSuccess: () => void }) {
           <button
             type="submit"
             disabled={loading}
-            className="inline-flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded text-white bg-secured hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-secured disabled:opacity-50"
+            className="inline-flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded text-[#14181F] bg-secured hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-secured disabled:opacity-50"
           >
             {loading ? 'Registrando...' : 'Registrar Sensor'}
           </button>
