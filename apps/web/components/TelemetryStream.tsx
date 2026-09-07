@@ -25,7 +25,7 @@ export default function TelemetryStream({ broker, title }: Props) {
 
   useEffect(() => {
     const token = getToken();
-    const socket: Socket = io(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001', {
+    const socket: Socket = io(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000', {
       auth: { token },
       transports: ['websocket'],
     });
@@ -38,14 +38,12 @@ export default function TelemetryStream({ broker, title }: Props) {
       setConnected(false);
     });
 
-    socket.on('telemetry', (payload: TelemetryData) => {
-      if (payload.broker === broker) {
-        setData((prev) => {
-          const newData = [payload, ...prev];
-          if (newData.length > 50) return newData.slice(0, 50);
-          return newData;
-        });
-      }
+    socket.on(`telemetry:${broker}`, (payload: TelemetryData) => {
+      setData((prev) => {
+        const newData = [payload, ...prev];
+        if (newData.length > 50) return newData.slice(0, 50);
+        return newData;
+      });
     });
 
     return () => {
