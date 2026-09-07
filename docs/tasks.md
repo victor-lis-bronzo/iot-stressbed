@@ -72,6 +72,11 @@ maior que isso na prática, quebrar mais). "Pronto quando" é sempre verificáve
 - Depende de: Compose mosquitto-plain.
 - Tamanho: M.
 - Teste: manual (observar publicações via `mosquitto_sub -t '#'`).
+- **Nota:** o usuário faz esta tarefa pessoalmente com PlatformIO — não delegar a
+  subagente. É a última peça a ser implementada; o resto do projeto (backend,
+  frontend, infra) não depende do hardware real estar pronto para avançar — pode ser
+  validado publicando manualmente via `mosquitto_pub`/um script de teste até o
+  firmware chegar.
 
 ### Módulo `capture`: portas + adapters (Mosquitto, InfluxDB)
 - Pronto quando: `MqttSubscriberPort`/`TelemetrySinkPort` estão definidas e os
