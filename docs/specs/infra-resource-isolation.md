@@ -71,7 +71,7 @@ de observação, nunca cedidos integralmente ao broker ou ao atacante.
 
 - Bom teste aqui é validar comportamento observável de infraestrutura, não a sintaxe do
   YAML: "com os limites configurados, o container do broker não ultrapassa X MB de RAM
-  sob carga sintética" é verificável via `docker stats`/cAdvisor, não via inspeção estática.
+  sob carga sintética" é verificável via `docker stats, não via inspeção estática.
 - Teste manual documentado no protocolo de experimento: subir a stack, disparar uma carga
   sintética conhecida contra o broker, confirmar via `docker stats` fora dos containers
   limitados que o host permanece responsivo (isso não é automatizável de forma barata em

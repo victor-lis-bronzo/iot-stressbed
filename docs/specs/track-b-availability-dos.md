@@ -15,7 +15,7 @@ Um container `attacker` isolado e limitado em recursos dispara três tipos de at
 (connection flood, message flood, payload malformado/gigante) contra o broker plain e,
 com os mesmos parâmetros, contra o broker secure. As métricas de saúde do broker (CPU,
 RAM, conexões, latência, perda) são coletadas por um caminho totalmente independente do
-NestJS (telegraf/cAdvisor raspando o container por fora), garantindo que o que é medido
+NestJS (telegraf (input `docker`) raspando o container por fora), garantindo que o que é medido
 é a resistência do broker, não a do software de observação.
 
 ## User Stories
@@ -29,7 +29,7 @@ NestJS (telegraf/cAdvisor raspando o container por fora), garantindo que o que �
 4. Como pesquisador, quero repetir os três ataques (B1/B2/B3) com os mesmos parâmetros
    contra o broker secure, para calcular o delta de overhead do TLS sob carga.
 5. Como pesquisador, quero que as métricas de CPU/RAM/conexões do broker sejam coletadas
-   por um processo (telegraf/cAdvisor) que não passa pelo NestJS, para garantir que a
+   por um processo (telegraf (input `docker`)) que não passa pelo NestJS, para garantir que a
    medição não é contaminada pelo gargalo do meu próprio software de auditoria.
 6. Como pesquisador, quero ver a latência ponta-a-ponta (publisher legítimo → dashboard)
    subir durante o ataque, comparada ao baseline, para quantificar a degradação percebida.
@@ -63,7 +63,7 @@ NestJS (telegraf/cAdvisor raspando o container por fora), garantindo que o que �
   e payload malformado — três modos de operação selecionáveis por parâmetro, não três
   containers separados.
 - As métricas de saúde (CPU, RAM, conexões, file descriptors) vêm de telegraf com input
-  do Docker stats/cAdvisor, escrevendo diretamente no InfluxDB — este caminho nunca passa
+  do Docker stats, escrevendo diretamente no InfluxDB — este caminho nunca passa
   pelo NestJS nem depende dele estar no ar.
 - O NestJS (`capture`, `metrics`, `realtime`) continua ativo durante o Track B apenas para
   fornecer o KPI de latência/perda do lado da aplicação (visão do usuário final) — ele não

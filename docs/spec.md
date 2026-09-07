@@ -59,7 +59,7 @@ reproduzíveis por `run_id`), e a própria plataforma "IoT StressBed" como demon
 4. Cada fluxo é repetido contra broker plain e broker secure, com os mesmos parâmetros
    de carga, para medir o overhead de TLS.
 
-### KPIs (coletados por telegraf/cAdvisor, caminho independente do NestJS)
+### KPIs (coletados por telegraf (input `docker`), caminho independente do NestJS)
 - CPU % e RAM (MB) do container do broker sob carga.
 - File descriptors abertos / conexões ativas no ponto de falha.
 - Latência ponta-a-ponta (ms) publisher legítimo → dashboard, baseline vs sob ataque.
@@ -76,7 +76,7 @@ reproduzíveis por `run_id`), e a própria plataforma "IoT StressBed" como demon
       de recursos por cgroups funciona) — verificável via `docker stats` fora dos containers
       limitados.
 - [ ] As métricas de saúde do broker vêm exclusivamente do coletor independente
-      (telegraf/cAdvisor), nunca do caminho do NestJS.
+      (telegraf (input `docker`)), nunca do caminho do NestJS.
 - [ ] O mesmo ataque contra o broker secure produz métricas comparáveis (mesma carga),
       permitindo calcular o delta de overhead do TLS.
 - [ ] Cada execução é uma run com `run_id` próprio e reproduzível via

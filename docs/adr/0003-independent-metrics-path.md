@@ -13,7 +13,7 @@ resistência real do broker.
 
 ## Decisão
 As métricas de saúde do broker/host (CPU, RAM, conexões, file descriptors) são
-coletadas exclusivamente por **telegraf + cAdvisor**, escrevendo direto no InfluxDB
+coletadas exclusivamente por **telegraf**, escrevendo direto no InfluxDB
 (measurement `broker_metrics`), sem qualquer dependência do `nestjs-api` estar no ar ou
 responsivo. O `nestjs-api`/`capture` continua ativo durante o Track B apenas para
 reportar a experiência do usuário final (latência/perda ponta-a-ponta) como métrica
@@ -36,6 +36,6 @@ o broker, pois ela não é a fonte de verdade científica sobre a saúde do brok
   (via `nestjs-api`) e `broker_metrics` (via telegraf) — nunca devem ser fundidos no
   mesmo pipeline de escrita.
 - Qualquer dashboard ou análise que apresente `broker_metrics` como "medido pelo NestJS"
-  está descrevendo a arquitetura errada — a fonte é sempre telegraf/cAdvisor.
+  está descrevendo a arquitetura errada — a fonte é sempre telegraf (input `docker`).
 - Validar esse caminho independente é um critério de aceite explícito do Track B
   (ver `docs/specs/track-b-availability-dos.md`).
