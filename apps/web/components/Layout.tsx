@@ -1,29 +1,29 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
-import { removeToken } from '../lib/auth';
-import { Activity, ShieldAlert, Cpu, Settings, LogOut } from 'lucide-react';
+import { usePathname } from 'next/navigation';
+import { signOut } from 'next-auth/react';
+import { Activity, ShieldAlert, Cpu, Settings, LogOut, type LucideIcon } from 'lucide-react';
 
-const navItems = [
+interface NavItem {
+  name: string;
+  icon: LucideIcon;
+  href?: string;
+}
+
+const navItems: NavItem[] = [
   { name: 'Dashboard', href: '/dashboard', icon: Activity },
   { name: 'Interceptação', href: '/interception', icon: ShieldAlert },
-  { name: 'Console de Ataque', href: '/attack', icon: Cpu },
+  { name: 'Console de Ataque', icon: Cpu },
   { name: 'Sensores', href: '/sensors', icon: Settings },
 ];
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const router = useRouter();
 
   if (pathname === '/login') {
     return <>{children}</>;
   }
-
-  const handleLogout = () => {
-    removeToken();
-    router.push('/login');
-  };
 
   return (
     <div className="flex h-screen bg-base font-sans">
@@ -35,6 +35,20 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
         <nav className="flex-1 px-2 py-3 space-y-px overflow-y-auto">
           {navItems.map((item) => {
+            if (!item.href) {
+              return (
+                <span
+                  key={item.name}
+                  aria-disabled="true"
+                  title="Disponível na Fase 4"
+                  className="flex cursor-not-allowed items-center gap-3 rounded border-l-2 border-transparent px-3 py-2 text-sm text-muted opacity-40"
+                >
+                  <item.icon className="h-4 w-4 flex-shrink-0 text-muted" aria-hidden="true" />
+                  {item.name}
+                </span>
+              );
+            }
+
             const isActive = pathname.startsWith(item.href);
             return (
               <Link
@@ -59,7 +73,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
         <div className="p-2 border-t border-border">
           <button
-            onClick={handleLogout}
+            onClick={() => signOut({ redirectTo: '/login' })}
             className="flex w-full items-center gap-3 rounded px-3 py-2 text-sm text-muted hover:bg-base hover:text-critical"
           >
             <LogOut className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
