@@ -1,4 +1,75 @@
-# Placeholder — orquestração dos containers descritos em docs/architecture.md.
-# Serviços a definir: mosquitto-plain, mosquitto-secure, postgres, influxdb, grafana,
-# telegraf, nestjs-api, nextjs-web, attacker. Rede bridge dedicada `stressbed-net`.
-# Limites de recurso (cpuset/cpus/memory/pids-limit) por serviço: ver docs/adr/0004-*.md.
+# =========================================================================== #
+# IoT StressBed — orquestração do testbed
+# =========================================================================== #
+#
+# Ver: docs/architecture.md, docs/specs/infra-resource-isolation.md,
+#      docs/adr/0004-cgroups-resource-isolation.md
+#
+# Antes do primeiro `docker compose up`:
+#   1. cp .env.example .env    e troque os valores "change-me"
+#   2. ./scripts/gen-certs.sh  (necessário para o mosquitto-secure)
+#
+# Serviços de fases futuras — NÃO definidos aqui ainda:
+#   nestjs-api  (Fase 1)  — backend (auth, sensors, capture, experiments,
+#                           metrics, realtime). Entra na rede stressbed-net e
+#                           no cpuset da stack de observação (STACK_CPUSET).
+#   nextjs-web  (Fase 4)  — dashboard.
+#   attacker    (Fase 3)  — flooding/injeção via Paho; sobe sob demanda
+#                           (profile separado) e recebe os limites de recurso
+#                           ATTACKER_* já reservados no .env.example.
+
+name: ${COMPOSE_PROJECT_NAME:-stressbed}
+
+# --------------------------------------------------------------------------- #
+# Rede
+# --------------------------------------------------------------------------- #
+# Bridge dedicada: o tráfego do experimento não se mistura com a rede default
+# do Docker nem com outros containers da máquina (user story 8 da spec).
+networks:
+  stressbed-net:
+    name: stressbed-net
+    driver: bridge
+
+services:
+
+  # ========================================================================= #
+  # mosquitto-plain — BROKER ALVO (MQTT em claro, sem autenticação)
+  # ========================================================================= #
+  # Aberto de propósito: é a vulnerabilidade que a IC demonstra.
+  # Ver infra/mosquitto/plain/mosquitto.conf.
+  mosquitto-plain:
+    image: eclipse-mosquitto:2.0.20
+    container_name: mosquitto-plain
+    hostname: mosquitto-plain
+
+    # Não reiniciar automaticamente: se um flood do Track B derrubar o broker,
+    # a queda tem que PERMANECER visível. Um restart automático mascararia
+    # justamente o resultado que o experimento mede.
+    restart: "no"
+
+    # 0.0.0.0 porque o ESP32 é hardware externo na LAN e publica aqui.
+    ports:
+      - "${MQTT_PLAIN_PORT:-1883}:1883"
+
+    volumes:
+      - ./infra/mosquitto/plain/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+
+    networks:
+      - stressbed-net
+
+    # Teto de log: um message flood gera log volumoso; sem rotação isso enche
+    # o disco do host e derruba a coleta junto.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # $$ escapa a interpolação do Compose para que o shell do container receba
+    # $SYS literal.
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_sub -h 127.0.0.1 -p 1883 -t '$$SYS/broker/uptime' -C 1 -W 3 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
