@@ -12,9 +12,11 @@ Detalhamento completo de escopo/KPIs/arquitetura em `docs/spec.md` e `docs/archi
 ## Domínio e glossário
 
 - **Sensor**: dispositivo físico (ESP32) que mede temperatura/umidade e publica no broker.
-- **Publisher legítimo**: o ESP32 rodando o firmware `baseline`, publicando a cada 2s.
-- **Publisher malicioso**: script Python (`attacker/`) ou firmware ESP32 `attack`, usado
-  para injeção de leituras falsas (Track A) ou flooding (Track B).
+- **Publisher legítimo**: o ESP32 rodando o firmware `sensor` (único firmware do
+  projeto), publicando a cada 2s.
+- **Publisher malicioso**: script Python em `attacker/`, usado para injeção de leituras
+  falsas (Track A) ou flooding (Track B). Não há firmware malicioso no ESP32 — o ataque
+  vem sempre de fora do hardware.
 - **Subscriber malicioso**: o próprio módulo `capture` do NestJS, que assina `#` no broker
   para demonstrar que qualquer um pode auditar tudo sem autorização — é a vulnerabilidade
   E a ferramenta de observação ao mesmo tempo.

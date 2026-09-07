@@ -53,8 +53,7 @@ reproduzíveis por `run_id`), e a própria plataforma "IoT StressBed" como demon
 ### Fluxos
 1. **B1 Connection flood**: container `attacker` abre milhares de conexões TCP/MQTT
    zumbis contra o broker (via Paho), simulando ataque de exaustão de conexões.
-2. **B2 Message flood**: tempestade de PUBLISH em alta taxa, via container `attacker`
-   e/ou firmware ESP32 `attack` reprogramado para disparo no clock máximo.
+2. **B2 Message flood**: tempestade de PUBLISH em alta taxa, via container `attacker`.
 3. **B3 Payload malformado/gigante**: mensagens malformadas ou anormalmente grandes
    enviadas ao broker para testar robustez de parsing/buffer.
 4. Cada fluxo é repetido contra broker plain e broker secure, com os mesmos parâmetros

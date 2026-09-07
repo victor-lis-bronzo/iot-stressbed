@@ -66,7 +66,7 @@ maior que isso na prática, quebrar mais). "Pronto quando" é sempre verificáve
 - Depende de: nenhuma.
 - Tamanho: P.
 
-### Firmware ESP32 `baseline`
+### Firmware ESP32 `sensor`
 - Pronto quando: o dispositivo publica temperatura/umidade a cada 2s no
   `mosquitto-plain`, visível via `mosquitto_sub` manual.
 - Depende de: Compose mosquitto-plain.
@@ -299,12 +299,6 @@ maior que isso na prática, quebrar mais). "Pronto quando" é sempre verificáve
 - Depende de: Aplicar limites de recurso (Fase 0.5), Medir KPIs do Track B.
 - Tamanho: P.
 - Teste: manual, checklist do protocolo de experimento.
-
-### Firmware ESP32 `attack` (stretch)
-- Pronto quando: o firmware dispara mensagens no clock máximo do dispositivo
-  contra o broker plain, e o efeito é observável nas métricas do Track B.
-- Depende de: Medir KPIs do Track B contra o broker plain.
-- Tamanho: M.
 
 ---
 

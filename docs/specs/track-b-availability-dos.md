@@ -56,8 +56,6 @@ NestJS (telegraf/cAdvisor raspando o container por fora), garantindo que o que �
     taggeada nas métricas do InfluxDB, para poder comparar runs plain vs secure lado a lado.
 15. Como pesquisador, quero visualizar no Grafana/console de ataque as métricas subindo em
     tempo real durante o ataque, para acompanhar o experimento enquanto ele acontece.
-16. Como pesquisador (stretch), quero reprogramar o firmware do ESP32 para disparo em alta
-    taxa, para avaliar se um dispositivo IoT real e limitado também consegue floodar o broker.
 
 ## Implementation Decisions
 
@@ -77,9 +75,8 @@ NestJS (telegraf/cAdvisor raspando o container por fora), garantindo que o que �
 - Todo ataque é parametrizado por `run_id`, modo (plain/secure) e tipo de ataque; o
   `experiments` module do NestJS registra o início/fim da run no Postgres e propaga o
   `run_id` como tag nas escritas do InfluxDB (tanto telemetria quanto métricas).
-- O firmware ESP32 `attack` (disparo em alta taxa) é um binário separado do firmware
-  `baseline`, carregado manualmente quando esse cenário específico for testado — não
-  coexiste com o baseline no mesmo device ao mesmo tempo.
+- Todo ataque (B1/B2/B3) é gerado pelo container `attacker` — o ESP32 roda um único
+  firmware (`sensor`, publisher legítimo) e nunca é reprogramado para atacar.
 
 ## Testing Decisions
 

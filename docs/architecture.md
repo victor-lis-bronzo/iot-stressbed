@@ -19,8 +19,9 @@ e alternativas descartadas vivem em `docs/adr/`; este arquivo é a visão consol
   grupo de controle.
 - **Docker Compose** com limites de cgroups nativos (cpuset, memory, pids-limit) para
   broker e atacante ([[ADR-0004]]).
-- **ESP32 (C++/Arduino ou PlatformIO)**: publisher legítimo (firmware `baseline`) e,
-  opcionalmente, publisher malicioso de alta taxa (firmware `attack`).
+- **ESP32 (C++/Arduino ou PlatformIO)**: publisher legítimo, único firmware
+  (`sensor`). Toda a carga maliciosa de Track A/B vem do container `attacker`, não do
+  hardware.
 - **Python + Paho**: container `attacker` para os fluxos de flooding/injeção do Track B
   e injeção do Track A.
 
@@ -28,9 +29,9 @@ e alternativas descartadas vivem em `docs/adr/`; este arquivo é a visão consol
 
 ```
                           ┌─────────────┐     ┌──────────────┐
-   ESP32 (baseline) ────► │ mosquitto-  │◄────┤   attacker   │
+   ESP32 (sensor) ──────► │ mosquitto-  │◄────┤   attacker   │
                           │   plain     │     │  (Paho, CPU/ │
-   ESP32 (attack, opc) ─► │  (1883)     │     │  RAM limited)│
+                          │  (1883)     │     │  RAM limited)│
                           └──────┬──────┘     └──────────────┘
                                  │  subscribe #
                                  ▼
