@@ -1,0 +1,3 @@
+# Dependências dos scripts de desenvolvimento (scripts/mock-sensor.py).
+# Escopo separado de attacker/ (Track A/B) e de apps/.
+paho-mqtt>=2.1,<3
