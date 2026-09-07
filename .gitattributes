@@ -1,0 +1,9 @@
+# Arquivos consumidos por containers Linux precisam de LF, mesmo em checkout Windows
+# (core.autocrlf=true quebraria o shebang de scripts e o parser do Mosquitto).
+*.sh            text eol=lf
+*.conf          text eol=lf
+*.acl           text eol=lf
+*.template      text eol=lf
+docker-compose.yml text eol=lf
+.env.example    text eol=lf
+Dockerfile*     text eol=lf

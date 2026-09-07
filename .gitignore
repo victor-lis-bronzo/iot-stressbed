@@ -1,0 +1,34 @@
+# Segredos e configuração local
+.env
+.env.local
+.env.*.local
+
+# Certificados TLS gerados por scripts/gen-certs.sh (nunca versionados)
+infra/mosquitto/secure/certs/
+
+# Credenciais/ACL do broker secure geradas em runtime pelo entrypoint
+infra/mosquitto/secure/auth/
+
+# Dados persistidos pelos containers (caso volumes bind sejam usados localmente)
+infra/mosquitto/*/data/
+infra/mosquitto/*/log/
+
+# Resultados brutos de experimentos
+results/
+
+# Node / Python
+node_modules/
+dist/
+build/
+.next/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Editores / SO
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
