@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 import { Space_Grotesk, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
-import AuthGuard from "../components/AuthGuard";
-import Layout from "../components/Layout";
+import Providers from "./providers";
+import Layout from "@/components/Layout";
 
 const spaceGrotesk = Space_Grotesk({
   variable: "--font-space-grotesk",
@@ -30,9 +30,9 @@ export default function RootLayout({
       <body
         className={`${spaceGrotesk.variable} ${ibmPlexMono.variable} font-sans antialiased`}
       >
-        <AuthGuard>
+        <Providers>
           <Layout>{children}</Layout>
-        </AuthGuard>
+        </Providers>
       </body>
     </html>
   );
