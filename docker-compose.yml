@@ -258,6 +258,59 @@ services:
       retries: 5
       start_period: 20s
 
+  # ========================================================================= #
+  # telegraf — métricas de container -> InfluxDB (`broker_metrics`)
+  # ========================================================================= #
+  # CAMINHO INDEPENDENTE (ADR-0003): depende apenas do socket do Docker e do
+  # InfluxDB. Nada de nestjs-api aqui — durante um flood do Track B o backend
+  # pode cair e esta série tem que continuar sendo gravada.
+  telegraf:
+    image: telegraf:1.34-alpine
+    container_name: stressbed-telegraf
+    hostname: telegraf
+
+    restart: unless-stopped
+
+    # Sem portas publicadas: telegraf só empurra dados para o InfluxDB.
+
+    # O processo roda como o usuário `telegraf`, mas precisa de um grupo que
+    # tenha leitura no socket do Docker (TELEGRAF_DOCKER_GID no .env: o gid do
+    # grupo `docker` no host Linux, ou 0 no Docker Desktop).
+    user: "telegraf:${TELEGRAF_DOCKER_GID:-0}"
+
+    environment:
+      TELEGRAF_INTERVAL: ${TELEGRAF_INTERVAL:-5s}
+      TELEGRAF_DOCKER_ENDPOINT: unix:///var/run/docker.sock
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN:?defina INFLUXDB_TOKEN no .env}
+      INFLUXDB_ORG: ${INFLUXDB_ORG:?defina INFLUXDB_ORG no .env}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:?defina INFLUXDB_BUCKET no .env}
+      # Tag da run ativa; "none" fora de um experimento.
+      RUN_ID: ${RUN_ID:-none}
+
+    volumes:
+      - ./infra/telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
+      # Somente leitura: telegraf lê os contadores de cgroup dos containers,
+      # nunca controla o daemon.
+      - ${TELEGRAF_DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock:ro
+
+    networks:
+      - stressbed-net
+
+    # Núcleos da stack de observação: o coletor precisa continuar coletando
+    # justamente quando os núcleos do broker estão saturados (ADR-0004).
+    cpuset: ${STACK_CPUSET:-0,1}
+
+    depends_on:
+      influxdb:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep telegraf >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
 # --------------------------------------------------------------------------- #
 # Volumes
 # --------------------------------------------------------------------------- #
