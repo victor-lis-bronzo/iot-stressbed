@@ -33,9 +33,10 @@ alias mqttc='docker run --rm -it --network stressbed-net \
 
 ---
 
-## 1. `scripts/gen-certs.sh` — CA + certificado de servidor
+## 1. `scripts/gen-certs.sh` — CA + certificado de servidor + certificados de cliente
 
-**Status: executado, aprovado.**
+**Status: executado, aprovado** (reexecutado depois do ADR-0007, com os
+certificados de cliente).
 
 ```bash
 rm -rf infra/mosquitto/secure/certs
@@ -45,11 +46,30 @@ rm -rf infra/mosquitto/secure/certs
 Esperado:
 - exit code 0;
 - `infra/mosquitto/secure/certs/` contém `ca.key`, `ca.crt`, `server.key`,
-  `server.crt` (todos não-vazios);
-- o próprio script imprime `.../server.crt: OK` (verificação de cadeia por
-  `openssl verify`) e o SAN do certificado;
-- `ca.key` em modo `0600`, `server.key` em `0640` (num host Linux;
-  no Windows o modo é irrelevante).
+  `server.crt` e — desde o ADR-0007 (mTLS) — `client-capture.key`,
+  `client-capture.crt`, `client-test.key`, `client-test.crt`
+  (todos não-vazios);
+- o próprio script imprime **três** linhas `OK` de `openssl verify`
+  (`server.crt`, `client-capture.crt`, `client-test.crt` — as duas últimas
+  verificadas com `-purpose sslclient`), o SAN do certificado de servidor e o
+  `extendedKeyUsage` de cada cliente;
+- `ca.key` em modo `0600`, `server.key` e `client-*.key` em `0640` (num host
+  Linux; no Windows o modo é irrelevante).
+
+Os dois certificados de cliente são deliberados (ver o cabeçalho do script):
+`client-capture` é a identidade do adapter `capture` do NestJS, que roda
+continuamente; `client-test` é a identidade usada em experimentação manual e
+pelo healthcheck do container. Ambos vêm da mesma CA e são igualmente válidos
+para o broker — a separação é operacional (regerar o de teste não derruba a
+coleta), não de autorização.
+
+Conferir que os certificados de cliente servem para autenticar cliente, e
+**não** para se passar pelo broker:
+
+```bash
+openssl x509 -in infra/mosquitto/secure/certs/client-capture.crt -noout -ext extendedKeyUsage
+# esperado: TLS Web Client Authentication (e NÃO "TLS Web Server Authentication")
+```
 
 Idempotência e regeneração:
 
@@ -70,7 +90,8 @@ Esperado: o IP aparece na lista de SAN. **Sem isso, o cliente TLS recusa a
 conexão por hostname mismatch** — é o erro mais provável de aparecer no
 firmware.
 
-**Pronto quando:** os quatro arquivos existem e a cadeia verifica.
+**Pronto quando:** os oito arquivos existem e as três cadeias verificam
+(servidor + dois clientes).
 
 ---
 
@@ -109,9 +130,10 @@ estudo foi "consertado" por engano — reverta.
 
 ---
 
-## 3. `mosquitto-secure` — 8883, TLS + auth + ACL
+## 3. `mosquitto-secure` — 8883, mTLS + senha + ACL
 
-**Status: executado, aprovado.**
+**Status: executado, aprovado** (reexecutado depois do ADR-0007, com mTLS
+obrigatório).
 
 ```bash
 docker compose up -d mosquitto-secure
@@ -123,25 +145,89 @@ Esperado nos logs, na ordem: as três linhas do entrypoint (certificados
 copiados, senha gerada, ACL gerada), depois
 `Opening ipv4 listen socket on port 8883.`
 
-O healthcheck já exercita o caminho feliz inteiro (TLS validado contra a CA +
-senha + ACL de leitura de `$SYS`); `healthy` é sinal positivo.
+Esperado nos logs do entrypoint: `certificados copiados de /mosquitto/certs.`
+(inclui agora `client-test.*`, usado pelo healthcheck).
+
+O healthcheck já exercita o caminho feliz inteiro (mTLS: valida o certificado
+do servidor contra a CA **e** apresenta o próprio certificado de cliente; mais
+senha e ACL de leitura de `$SYS`); `healthy` é sinal positivo. Se
+`require_certificate true` estivesse errado ou o certificado de cliente
+faltasse, o container **nunca** ficaria healthy — o healthcheck é, por si só,
+uma verificação contínua de mTLS.
 
 ### 3.1 Casos negativos (o que precisa ser RECUSADO)
 
-| # | Comando | Esperado |
-|---|---|---|
-| a | `mqttc mosquitto_pub -h mosquitto-secure -p 8883 -t sensors/x -m hi` | `Error: Protocol error` — TCP puro na porta TLS |
-| b | `mqttc mosquitto_pub --cafile /certs/ca.crt -h mosquitto-secure -p 8883 -t sensors/x -m hi` | `Connection Refused: not authorised` |
-| c | `mqttc mosquitto_pub --cafile /certs/ca.crt -h mosquitto-secure -p 8883 -u stressbed -P senha-errada -t sensors/x -m hi` | `Connection Refused: not authorised` |
+**Duas camadas independentes** (ADR-0007). Repare em *onde* cada recusa
+acontece — é essa distinção que o ADR pede que seja verificada:
+
+| # | Cenário | Comando | Esperado | Camada |
+|---|---|---|---|---|
+| a | TCP puro na porta TLS | `mqttc mosquitto_pub -h mosquitto-secure -p 8883 -t sensors/x -m hi` | `Error: Protocol error` | TCP/TLS |
+| b | TLS **sem** certificado de cliente (senha correta!) | `mqttc mosquitto_pub -d --cafile /certs/ca.crt -h mosquitto-secure -p 8883 -u stressbed -P change-me-mqtt-secure -t sensors/x -m hi` | `OpenSSL Error[0]: ... tlsv13 alert certificate required`, exit **7**, **sem CONNACK** | handshake TLS |
+| c | Certificado de **outra** CA | ver §3.1.1 | `OpenSSL Error[0]: ... tlsv1 alert unknown ca`, exit **7**, sem CONNACK | handshake TLS |
+| d | Certificado válido, **sem** credencial | `mqttc mosquitto_pub --cafile /certs/ca.crt --cert /certs/client-test.crt --key /certs/client-test.key -h mosquitto-secure -p 8883 -t sensors/x -m hi` | `Connection Refused: not authorised`, exit **5** | CONNECT/senha |
+| e | Certificado válido, senha **errada** | `mqttc mosquitto_pub -d --cafile /certs/ca.crt --cert /certs/client-test.crt --key /certs/client-test.key -h mosquitto-secure -p 8883 -u stressbed -P senha-errada -t sensors/x -m hi` | `received CONNACK (5)` / `Connection Refused: not authorised`, exit **5** | CONNECT/senha |
+
+O que diferencia (b)/(c) de (d)/(e) — e é o critério de aceite do ADR-0007:
+
+- em **(b)** e **(c)** a conexão morre no **handshake TLS**, antes do CONNECT:
+  o cliente vê um alerta OpenSSL e **nenhum CONNACK**, e o log do broker
+  registra `certificate verify failed` /
+  `Client <unknown> disconnected: Protocol error.` — o cliente nem chega a
+  existir como cliente MQTT. Em (b) a senha está **correta**: senha correta não
+  compra entrada sem certificado;
+- em **(d)** e **(e)** o handshake TLS teve **sucesso** (o certificado passou) e
+  a recusa vem do MQTT: `CONNACK (5)`. Ou seja, o certificado válido **não**
+  substitui a senha — a segunda camada continua ativa. É exatamente o que
+  `use_identity_as_username false` garante em `mosquitto.conf`.
+
+#### 3.1.1 Certificado de cliente de uma CA não confiável
+
+Prova que o que vale é a **assinatura pela CA local**, não a simples presença
+de um certificado qualquer:
+
+```bash
+# CA e cliente falsos, em diretório temporário
+mkdir -p /tmp/rogue && cd /tmp/rogue
+openssl genrsa -out rogue-ca.key 2048
+openssl req -new -x509 -key rogue-ca.key -out rogue-ca.crt -days 30 -subj "/CN=Rogue CA"
+openssl genrsa -out rogue-client.key 2048
+openssl req -new -key rogue-client.key -out rogue-client.csr -subj "/CN=rogue-client"
+openssl x509 -req -in rogue-client.csr -CA rogue-ca.crt -CAkey rogue-ca.key \
+  -CAcreateserial -out rogue-client.crt -days 30
+cd -
+
+# tentativa com credencial CORRETA, mas certificado de outra CA
+docker run --rm --network stressbed-net \
+  -v "$PWD/infra/mosquitto/secure/certs:/certs:ro" -v /tmp/rogue:/rogue:ro \
+  eclipse-mosquitto:2.0.20 mosquitto_pub -d \
+  --cafile /certs/ca.crt --cert /rogue/rogue-client.crt --key /rogue/rogue-client.key \
+  -h mosquitto-secure -p 8883 -u stressbed -P change-me-mqtt-secure \
+  -t sensors/esp32-01/telemetry -m hi; echo "exit=$?"
+```
+
+Esperado: `tlsv1 alert unknown ca`, `exit=7`, nenhum CONNACK. No log do broker:
+`OpenSSL Error[0]: error:0A000086:SSL routines::certificate verify failed`.
+
+> No Git Bash use `MSYS_NO_PATHCONV=1` antes do `docker run` (os caminhos
+> `/certs/...` e `/rogue/...` são do container).
 
 ### 3.2 Caso positivo
 
 ```bash
-mqttc mosquitto_pub --cafile /certs/ca.crt -h mosquitto-secure -p 8883 \
+mqttc mosquitto_pub --cafile /certs/ca.crt \
+  --cert /certs/client-capture.crt --key /certs/client-capture.key \
+  -h mosquitto-secure -p 8883 \
   -u stressbed -P change-me-mqtt-secure -t sensors/esp32-01/telemetry -m hi
 ```
 
-Esperado: sem saída, exit 0.
+Esperado: sem saída, exit 0. Repetir com `client-test.crt`/`client-test.key` —
+os dois certificados de cliente devem funcionar igualmente (mesma CA).
+
+No log do broker, a linha de conexão bem-sucedida mostra `u'stressbed'`: o
+username é o do **MQTT**, não o CN do certificado. Se algum dia aparecer
+`u'stressbed-capture'` (o CN), alguém ligou `use_identity_as_username` e a
+camada de senha foi desativada — regressão grave, reverter.
 
 ### 3.3 ACL
 
@@ -150,13 +236,20 @@ não confie na ausência de erro. Use QoS 1 com MQTT v5, que devolve reason code
 
 ```bash
 # tópico fora da ACL -> PUBACK RC:135 (Not authorized)
-mqttc mosquitto_pub -d -V 5 -q 1 --cafile /certs/ca.crt -h mosquitto-secure -p 8883 \
+mqttc mosquitto_pub -d -V 5 -q 1 --cafile /certs/ca.crt \
+  --cert /certs/client-test.crt --key /certs/client-test.key \
+  -h mosquitto-secure -p 8883 \
   -u stressbed -P change-me-mqtt-secure -t proibido/x -m hi
 
 # tópico permitido -> PUBACK RC:16 (Success / no matching subscribers)
-mqttc mosquitto_pub -d -V 5 -q 1 --cafile /certs/ca.crt -h mosquitto-secure -p 8883 \
+mqttc mosquitto_pub -d -V 5 -q 1 --cafile /certs/ca.crt \
+  --cert /certs/client-test.crt --key /certs/client-test.key \
+  -h mosquitto-secure -p 8883 \
   -u stressbed -P change-me-mqtt-secure -t sensors/esp32-01/telemetry -m hi
 ```
+
+A ACL continua casando pelo **username do MQTT** (`stressbed`), não pelo CN do
+certificado — consequência direta de `use_identity_as_username false`.
 
 Conferir os arquivos gerados em runtime (nenhuma credencial versionada):
 
@@ -165,9 +258,11 @@ MSYS_NO_PATHCONV=1 docker exec mosquitto-secure ls -l /mosquitto/runtime
 MSYS_NO_PATHCONV=1 docker exec mosquitto-secure cat /mosquitto/runtime/acl
 ```
 
-Esperado: `acl`, `passwd`, `ca.crt`, `server.crt`, `server.key` — todos com dono
-`mosquitto` (o broker larga privilégio e não roda como root); a ACL com
-`user stressbed` no lugar do placeholder `__MQTT_USER__`.
+Esperado: `acl`, `passwd`, `ca.crt`, `server.crt`, `server.key`,
+`client-test.crt`, `client-test.key` — todos com dono `mosquitto` (o broker
+larga privilégio e não roda como root); a ACL com `user stressbed` no lugar do
+placeholder `__MQTT_USER__`; as chaves privadas (`server.key`,
+`client-test.key`) e os arquivos de credencial (`passwd`, `acl`) em `0600`.
 
 Falha esperada e útil — subir sem certificados:
 
@@ -177,8 +272,20 @@ docker compose up mosquitto-secure     # deve morrer com mensagem apontando gen-
 mv /tmp/certs-bkp infra/mosquitto/secure/certs
 ```
 
-**Pronto quando:** os três casos negativos são recusados, o positivo passa, e a
-ACL devolve RC:135 fora do namespace.
+O mesmo vale para a falta de **um** certificado de cliente — o entrypoint
+valida `client-test.*` porque o healthcheck depende dele:
+
+```bash
+mv infra/mosquitto/secure/certs/client-test.crt /tmp/
+docker compose up mosquitto-secure
+# esperado, exit 1: "ERRO: certificado ausente ou vazio:
+#   /mosquitto/certs/client-test.crt - rode ./scripts/gen-certs.sh ..."
+mv /tmp/client-test.crt infra/mosquitto/secure/certs/
+```
+
+**Pronto quando:** os cinco casos negativos de §3.1 são recusados **na camada
+esperada** (handshake TLS em a/b/c, CONNECT em d/e), o positivo passa com os
+dois certificados de cliente, e a ACL devolve RC:135 fora do namespace.
 
 ---
 
@@ -413,7 +520,9 @@ docker compose down      # desce limpo
 
 - [ ] `gen-certs.sh` gera e verifica a cadeia (§1)
 - [ ] broker plain aceita tudo sem credencial (§2) — **não "consertar"**
-- [ ] broker secure recusa TCP puro, recusa sem/errada credencial, aplica ACL (§3)
+- [ ] broker secure exige mTLS (recusa no handshake TLS sem certificado ou com
+      certificado de outra CA), recusa sem/errada credencial mesmo COM
+      certificado válido, e aplica ACL (§3) — as duas camadas do ADR-0007
 - [ ] postgres/influxdb/grafana healthy + datasource OK (§4)
 - [ ] limites de recurso aplicados e respeitados sob carga (§5) — **crítico**
 - [ ] `broker_metrics` chegando via telegraf, sem NestJS (§6)
