@@ -1,33 +1,15 @@
-# =========================================================================== #
-# ACL do broker secure — TEMPLATE (versionado, sem credencial real)
-# =========================================================================== #
+# ACL do broker secure. O entrypoint substitui __MQTT_USER__ pelo valor de
+# MQTT_SECURE_USERNAME — nenhuma credencial real é versionada aqui.
 #
-# O entrypoint (docker-entrypoint.sh) substitui __MQTT_USER__ pelo valor de
-# MQTT_SECURE_USERNAME e escreve o resultado em /mosquitto/auth/acl.
-#
-# Regras do Mosquitto relevantes aqui:
-#  - com allow_anonymous false, clientes anônimos nem chegam à ACL (são
-#    recusados no CONNECT), então NÃO existe seção de tópicos anônimos útil
-#    neste arquivo — tudo vive sob a diretiva `user`;
-#  - o que não é explicitamente concedido é negado.
-#
-# Namespace de tópicos do testbed:
-#   sensors/<sensor_id>/telemetry   — publicações do ESP32 (e do atacante, no
-#                                     cenário de injeção do Track A)
-#   stressbed/<...>                 — tópicos de controle/experimento
+# O que não é explicitamente concedido é negado. Não existe seção de tópicos
+# anônimos porque, com allow_anonymous false, clientes anônimos são recusados
+# no CONNECT e nunca chegam à ACL.
 
 user __MQTT_USER__
 
-# Publicar telemetria (papel do ESP32 / publisher legítimo).
 topic write sensors/#
-
-# Assinar telemetria (papel do módulo `capture` do NestJS).
 topic read sensors/#
 
-# Tópicos internos do testbed (controle de run, health check).
 topic readwrite stressbed/#
 
-# Contadores internos do broker, somente leitura. Útil para inspeção manual;
-# a fonte da verdade sobre saúde do broker é o telegraf lendo os cgroups do
-# container (ADR-0003), não $SYS.
 topic read $SYS/#

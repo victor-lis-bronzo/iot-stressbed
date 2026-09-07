@@ -1,28 +1,17 @@
-# =========================================================================== #
-# IoT StressBed — orquestração do testbed
-# =========================================================================== #
-#
-# Ver: docs/architecture.md, docs/specs/infra-resource-isolation.md,
-#      docs/adr/0004-cgroups-resource-isolation.md
+# IoT StressBed — orquestração do testbed.
 #
 # Antes do primeiro `docker compose up`:
 #   1. cp .env.example .env    e troque os valores "change-me"
 #   2. ./scripts/gen-certs.sh  (necessário para o mosquitto-secure)
 #
-# Serviços de fases futuras — NÃO definidos aqui ainda:
-#   nestjs-api  (Fase 1)  — backend (auth, sensors, capture, experiments,
-#                           metrics, realtime). Entra na rede stressbed-net e
-#                           no cpuset da stack de observação (STACK_CPUSET).
-#   nextjs-web  (Fase 4)  — dashboard.
-#   attacker    (Fase 3)  — flooding/injeção via Paho; sobe sob demanda
-#                           (profile separado) e recebe os limites de recurso
-#                           ATTACKER_* já reservados no .env.example.
+# nestjs-api (Fase 1), nextjs-web (Fase 4) e attacker (Fase 3) ainda não estão
+# aqui; os limites ATTACKER_* já ficam reservados no .env.example.
+#
+# Ver: docs/architecture.md, docs/specs/infra-resource-isolation.md,
+#      docs/adr/0004-cgroups-resource-isolation.md
 
 name: ${COMPOSE_PROJECT_NAME:-stressbed}
 
-# --------------------------------------------------------------------------- #
-# Rede
-# --------------------------------------------------------------------------- #
 # Bridge dedicada: o tráfego do experimento não se mistura com a rede default
 # do Docker nem com outros containers da máquina (user story 8 da spec).
 networks:
@@ -32,22 +21,18 @@ networks:
 
 services:
 
-  # ========================================================================= #
-  # mosquitto-plain — BROKER ALVO (MQTT em claro, sem autenticação)
-  # ========================================================================= #
-  # Aberto de propósito: é a vulnerabilidade que a IC demonstra.
+  # BROKER ALVO, aberto de propósito: é a vulnerabilidade que a IC demonstra.
   # Ver infra/mosquitto/plain/mosquitto.conf.
   mosquitto-plain:
     image: eclipse-mosquitto:2.0.20
     container_name: mosquitto-plain
     hostname: mosquitto-plain
 
-    # Não reiniciar automaticamente: se um flood do Track B derrubar o broker,
-    # a queda tem que PERMANECER visível. Um restart automático mascararia
-    # justamente o resultado que o experimento mede.
+    # Se um flood do Track B derrubar o broker, a queda tem que PERMANECER
+    # visível — um restart automático mascararia o resultado medido.
     restart: "no"
 
-    # 0.0.0.0 porque o ESP32 é hardware externo na LAN e publica aqui.
+    # Publicado em 0.0.0.0 porque o ESP32 é hardware externo na LAN.
     ports:
       - "${MQTT_PLAIN_PORT:-1883}:1883"
 
@@ -57,45 +42,36 @@ services:
     networks:
       - stressbed-net
 
-    # Teto de log: um message flood gera log volumoso; sem rotação isso enche
-    # o disco do host e derruba a coleta junto.
+    # Teto de log: um message flood gera log volumoso e sem rotação enche o
+    # disco do host, derrubando a coleta junto.
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
 
-    # $$ escapa a interpolação do Compose para que o shell do container receba
-    # $SYS literal.
-    # ----------------------------------------------------------------------- #
-    # ISOLAMENTO DE RECURSOS (ADR-0004) — requisito não-funcional mais crítico
-    # do projeto. Sem estes limites, um flood do Track B satura CPU/RAM/PIDs do
+    # ISOLAMENTO DE RECURSOS (ADR-0004), requisito não-funcional mais crítico do
+    # projeto: sem estes limites um flood do Track B satura CPU/RAM/PIDs do
     # host, derruba a stack de observação junto com o broker e torna impossível
     # distinguir "o broker caiu" de "a máquina toda travou".
-    # Todos os valores vêm do .env (user story 10 da spec).
-    # ----------------------------------------------------------------------- #
-
-    # Núcleos FIXOS (--cpuset-cpus). Não inclui os núcleos da stack de
-    # observação (STACK_CPUSET) nem os do atacante (ATTACKER_CPUSET): é essa
-    # exclusão que reserva CPU para o host e mantém Grafana/InfluxDB coletando
-    # com o broker saturado.
+    #
+    # O cpuset exclui os núcleos da stack de observação (STACK_CPUSET) e do
+    # atacante (ATTACKER_CPUSET): é essa exclusão que reserva CPU para o host e
+    # mantém Grafana/InfluxDB coletando com o broker saturado.
     cpuset: ${BROKER_PLAIN_CPUSET:-2}
-
-    # Teto de CPU (--cpus). Mesmo dentro do cpuset, o broker não consome mais
-    # que esta fração — deixa margem no próprio núcleo.
     cpus: ${BROKER_PLAIN_CPUS:-1.0}
 
-    # Memória (--memory) e, IGUAL a ela, o limite de memória+swap
-    # (--memory-swap). Iguais = swap zero para o container: o ponto de OOM fica
-    # determinístico e não é mascarado por paginação em disco (user story 3).
-    # NUNCA aumente MEMSWAP acima de MEMORY.
+    # memswap_limit IGUAL a mem_limit = swap zero para o container: o ponto de
+    # OOM fica determinístico e não é mascarado por paginação em disco (user
+    # story 3). NUNCA aumente MEMSWAP acima de MEMORY.
     mem_limit: ${BROKER_PLAIN_MEMORY:-256m}
     memswap_limit: ${BROKER_PLAIN_MEMSWAP:-256m}
 
-    # Teto de processos/threads (--pids-limit): contém a explosão de tarefas
-    # induzida por um connection flood antes que ela esgote os PIDs do host.
+    # Contém a explosão de tarefas induzida por um connection flood antes que
+    # ela esgote os PIDs do host.
     pids_limit: ${BROKER_PLAIN_PIDS:-512}
 
+    # $$ escapa a interpolação do Compose: o container recebe $SYS literal.
     healthcheck:
       test: ["CMD-SHELL", "mosquitto_sub -h 127.0.0.1 -p 1883 -t '$$SYS/broker/uptime' -C 1 -W 3 >/dev/null 2>&1"]
       interval: 10s
@@ -103,11 +79,9 @@ services:
       retries: 3
       start_period: 5s
 
-  # ========================================================================= #
-  # mosquitto-secure — GRUPO DE CONTROLE (MQTTS: TLS + usuário/senha + ACL)
-  # ========================================================================= #
-  # Pré-requisito: ./scripts/gen-certs.sh (o entrypoint falha com mensagem
-  # explícita se os certificados não existirem).
+  # GRUPO DE CONTROLE (mTLS + usuário/senha + ACL). Pré-requisito:
+  # ./scripts/gen-certs.sh — o entrypoint falha com mensagem explícita se os
+  # certificados não existirem.
   mosquitto-secure:
     image: eclipse-mosquitto:2.0.20
     container_name: mosquitto-secure
@@ -118,9 +92,8 @@ services:
     ports:
       - "${MQTT_SECURE_PORT:-8883}:8883"
 
-    # O entrypoint próprio materializa passwd/ACL a partir do .env e então
-    # entrega o controle ao CMD (mosquitto). Roda como o usuário mosquitto
-    # (uid 1883) da imagem — sem root.
+    # O entrypoint materializa passwd/ACL a partir do .env e então entrega o
+    # controle ao CMD.
     entrypoint: ["/entrypoint/docker-entrypoint.sh"]
     command: ["/usr/sbin/mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
 
@@ -132,7 +105,6 @@ services:
       - ./infra/mosquitto/secure/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - ./infra/mosquitto/secure/acl.template:/mosquitto/config/acl.template:ro
       - ./infra/mosquitto/secure/docker-entrypoint.sh:/entrypoint/docker-entrypoint.sh:ro
-      # Certificados gerados por scripts/gen-certs.sh — read-only, o broker só lê.
       - ./infra/mosquitto/secure/certs:/mosquitto/certs:ro
 
     networks:
@@ -144,41 +116,20 @@ services:
         max-size: "10m"
         max-file: "3"
 
-    # Healthcheck exercita o caminho completo do grupo de controle: mTLS
-    # (valida o certificado do servidor contra a CA E apresenta o próprio
-    # certificado de cliente, exigido por ADR-0007), autenticação por senha e a
-    # ACL de leitura de $SYS. `localhost` está no SAN do certificado do servidor.
-    # Usa /mosquitto/runtime (cópia feita pelo entrypoint, dono correto) em vez
-    # do bind mount, pelo mesmo motivo que o broker — ver docker-entrypoint.sh.
-    # ----------------------------------------------------------------------- #
-    # ISOLAMENTO DE RECURSOS (ADR-0004) — requisito não-funcional mais crítico
-    # do projeto. Sem estes limites, um flood do Track B satura CPU/RAM/PIDs do
-    # host, derruba a stack de observação junto com o broker e torna impossível
-    # distinguir "o broker caiu" de "a máquina toda travou".
-    # Todos os valores vêm do .env (user story 10 da spec).
-    # ----------------------------------------------------------------------- #
-
-    # Núcleos FIXOS (--cpuset-cpus). Não inclui os núcleos da stack de
-    # observação (STACK_CPUSET) nem os do atacante (ATTACKER_CPUSET): é essa
-    # exclusão que reserva CPU para o host e mantém Grafana/InfluxDB coletando
-    # com o broker saturado.
+    # Limites deliberadamente idênticos ao broker plain — ver o bloco de
+    # isolamento de recursos acima.
     cpuset: ${BROKER_SECURE_CPUSET:-3}
-
-    # Teto de CPU (--cpus). Mesmo dentro do cpuset, o broker não consome mais
-    # que esta fração — deixa margem no próprio núcleo.
     cpus: ${BROKER_SECURE_CPUS:-1.0}
-
-    # Memória (--memory) e, IGUAL a ela, o limite de memória+swap
-    # (--memory-swap). Iguais = swap zero para o container: o ponto de OOM fica
-    # determinístico e não é mascarado por paginação em disco (user story 3).
-    # NUNCA aumente MEMSWAP acima de MEMORY.
     mem_limit: ${BROKER_SECURE_MEMORY:-256m}
     memswap_limit: ${BROKER_SECURE_MEMSWAP:-256m}
-
-    # Teto de processos/threads (--pids-limit): contém a explosão de tarefas
-    # induzida por um connection flood antes que ela esgote os PIDs do host.
     pids_limit: ${BROKER_SECURE_PIDS:-512}
 
+    # Exercita o caminho completo do grupo de controle: mTLS (valida o
+    # certificado do servidor contra a CA E apresenta o próprio certificado de
+    # cliente, exigido pelo ADR-0007), senha e ACL de leitura de $SYS.
+    # `localhost` está no SAN do certificado do servidor, e os arquivos vêm de
+    # /mosquitto/runtime (cópia do entrypoint) pelo mesmo motivo de permissão
+    # descrito em docker-entrypoint.sh.
     healthcheck:
       test:
         - CMD-SHELL
@@ -194,10 +145,8 @@ services:
       retries: 3
       start_period: 5s
 
-  # ========================================================================= #
-  # postgres — estado da aplicação (usuários, sensores, metadados de run)
-  # ========================================================================= #
-  # NUNCA telemetria: série temporal vive no InfluxDB (ADR-0001).
+  # Estado da aplicação (usuários, sensores, metadados de run). NUNCA
+  # telemetria: série temporal vive no InfluxDB (ADR-0001).
   postgres:
     image: postgres:16-alpine
     container_name: stressbed-postgres
@@ -232,10 +181,8 @@ services:
       retries: 5
       start_period: 10s
 
-  # ========================================================================= #
-  # influxdb — série temporal: `telemetry`, `capture_meta` (via nestjs-api,
-  # Fase 1) e `broker_metrics` (via telegraf, caminho independente — ADR-0003)
-  # ========================================================================= #
+  # Série temporal: `telemetry` e `capture_meta` (via nestjs-api, Fase 1) e
+  # `broker_metrics` (via telegraf, caminho independente — ADR-0003).
   influxdb:
     image: influxdb:2.7-alpine
     container_name: stressbed-influxdb
@@ -259,7 +206,6 @@ services:
     volumes:
       - influxdb-data:/var/lib/influxdb2
       - influxdb-config:/etc/influxdb2
-      # Scripts opcionais rodados no bootstrap (vazio nesta fase).
       - ./infra/influxdb/init:/docker-entrypoint-initdb.d:ro
 
     networks:
@@ -274,9 +220,6 @@ services:
       retries: 5
       start_period: 15s
 
-  # ========================================================================= #
-  # grafana — visualização de telemetria e de broker_metrics
-  # ========================================================================= #
   grafana:
     image: grafana/grafana:11.6.0
     container_name: stressbed-grafana
@@ -290,7 +233,7 @@ services:
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?defina GRAFANA_ADMIN_USER no .env}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?defina GRAFANA_ADMIN_PASSWORD no .env}
-      # Sem acesso anônimo, coerente com ADR-0005 (nada do painel é público).
+      # Nada do painel é público (ADR-0005).
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
@@ -321,12 +264,10 @@ services:
       retries: 5
       start_period: 20s
 
-  # ========================================================================= #
-  # telegraf — métricas de container -> InfluxDB (`broker_metrics`)
-  # ========================================================================= #
-  # CAMINHO INDEPENDENTE (ADR-0003): depende apenas do socket do Docker e do
-  # InfluxDB. Nada de nestjs-api aqui — durante um flood do Track B o backend
-  # pode cair e esta série tem que continuar sendo gravada.
+  # Métricas de container -> InfluxDB (`broker_metrics`). CAMINHO INDEPENDENTE
+  # (ADR-0003): depende apenas do socket do Docker e do InfluxDB, nunca do
+  # nestjs-api — durante um flood do Track B o backend pode cair e esta série
+  # tem que continuar sendo gravada.
   telegraf:
     image: telegraf:1.34-alpine
     container_name: stressbed-telegraf
@@ -334,11 +275,8 @@ services:
 
     restart: unless-stopped
 
-    # Sem portas publicadas: telegraf só empurra dados para o InfluxDB.
-
-    # O processo roda como o usuário `telegraf`, mas precisa de um grupo que
-    # tenha leitura no socket do Docker (TELEGRAF_DOCKER_GID no .env: o gid do
-    # grupo `docker` no host Linux, ou 0 no Docker Desktop).
+    # O processo roda como `telegraf`, mas precisa de um grupo com leitura no
+    # socket do Docker (TELEGRAF_DOCKER_GID no .env).
     user: "telegraf:${TELEGRAF_DOCKER_GID:-0}"
 
     environment:
@@ -352,15 +290,14 @@ services:
 
     volumes:
       - ./infra/telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro
-      # Somente leitura: telegraf lê os contadores de cgroup dos containers,
-      # nunca controla o daemon.
+      # Read-only: telegraf lê os contadores de cgroup, nunca controla o daemon.
       - ${TELEGRAF_DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock:ro
 
     networks:
       - stressbed-net
 
-    # Núcleos da stack de observação: o coletor precisa continuar coletando
-    # justamente quando os núcleos do broker estão saturados (ADR-0004).
+    # O coletor precisa continuar coletando justamente quando os núcleos do
+    # broker estão saturados (ADR-0004).
     cpuset: ${STACK_CPUSET:-0,1}
 
     depends_on:
@@ -374,9 +311,6 @@ services:
       retries: 3
       start_period: 10s
 
-# --------------------------------------------------------------------------- #
-# Volumes
-# --------------------------------------------------------------------------- #
 volumes:
   postgres-data:
   influxdb-data:

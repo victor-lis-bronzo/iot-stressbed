@@ -1,63 +1,28 @@
 #!/usr/bin/env bash
 #
-# gen-certs.sh — gera a CA local, o certificado de servidor do broker
-# `mosquitto-secure` e os certificados de CLIENTE exigidos por mTLS
-# (grupo de controle MQTTS do experimento).
-#
-# Ver: docs/specs/infra-resource-isolation.md (user story 7)
-#      docs/adr/0004-cgroups-resource-isolation.md
-#      docs/adr/0007-mtls-on-secure-broker.md   (mTLS obrigatório)
-#
-# Saída (em infra/mosquitto/secure/certs/):
-#   ca.key              — chave privada da CA local     (0600, NUNCA versionada)
-#   ca.crt              — certificado da CA local       (usado por clientes/ESP32)
-#   server.key          — chave privada do broker       (0640, NUNCA versionada)
-#   server.crt          — certificado do broker, assinado pela CA
-#   client-capture.key  — chave privada do cliente `capture` (0640)
-#   client-capture.crt  — certificado de cliente do adapter `capture` do NestJS
-#   client-test.key     — chave privada do cliente de teste  (0640)
-#   client-test.crt     — certificado de cliente para testes manuais/healthcheck
-#
-# POR QUE DOIS CERTIFICADOS DE CLIENTE (e não um só):
-#   O broker exige mTLS (ADR-0007), então TODO cliente precisa de certificado.
-#   Separar o certificado do componente de produção do testbed (`capture`, que
-#   roda continuamente e assina a telemetria) do certificado usado em
-#   experimentação manual (`mosquitto_pub/sub` do pesquisador, healthcheck do
-#   container, depuração) mantém uma identidade por papel: regerar o
-#   certificado de teste não derruba a coleta, e cada credencial de máquina
-#   fica com escopo de uso claro (o mosquitto não loga o CN do cliente, mas o
-#   arquivo em uso identifica o papel de quem conectou).
-#   Ambos são assinados pela MESMA CA local e são, do ponto de vista do broker,
-#   igualmente válidos — a separação é operacional, não de autorização (a
-#   autorização continua vindo de usuário/senha + ACL).
+# Gera, em infra/mosquitto/secure/certs/, a CA local, o certificado de servidor
+# do broker `mosquitto-secure` e os certificados de cliente exigidos pelo mTLS
+# (ADR-0007). São credenciais de laboratório: CA auto-assinada, sem rotação.
 #
 # Uso:
-#   ./scripts/gen-certs.sh                 # gera se não existir
-#   ./scripts/gen-certs.sh --force         # regenera do zero
-#   CERT_EXTRA_SAN="IP:192.168.0.42" ./scripts/gen-certs.sh
-#
-# Estes certificados são de uso EXCLUSIVO do testbed de laboratório. A CA é
-# auto-assinada e não há rotação automática (fora de escopo — ver spec).
+#   ./scripts/gen-certs.sh                                   # gera se não existir
+#   ./scripts/gen-certs.sh --force                           # regenera do zero
+#   CERT_EXTRA_SAN="IP:192.168.0.42" ./scripts/gen-certs.sh  # SAN extra p/ ESP32
 
 set -euo pipefail
 
 # Git Bash/MSYS no Windows converte argumentos que "parecem" caminho POSIX
-# (ex: /C=BR/O=... do -subj) em caminho Windows, corrompendo o DN. Excluímos
-# só os prefixos de DN da conversão — os caminhos de arquivo AINDA precisam ser
-# convertidos, porque o openssl do Git Bash é um binário nativo Windows.
-# Inofensivo em Linux/macOS, onde esta variável simplesmente não é usada.
+# (o /C=BR/... do -subj) em caminho Windows e corrompe o DN. Excluímos só os
+# prefixos de DN: os caminhos de arquivo AINDA precisam ser convertidos, porque
+# o openssl do Git Bash é um binário nativo Windows.
 export MSYS2_ARG_CONV_EXCL='/C=;/O=;/OU=;/CN='
-
-# --------------------------------------------------------------------------- #
-# Parâmetros
-# --------------------------------------------------------------------------- #
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 CERT_DIR="${CERT_DIR:-${PROJECT_ROOT}/infra/mosquitto/secure/certs}"
 
-# Validade: 825 dias é o teto aceito por clientes TLS modernos para folhas.
 CA_DAYS="${CA_DAYS:-1825}"
+# 825 dias é o teto que clientes TLS modernos aceitam em certificado folha.
 SERVER_DAYS="${SERVER_DAYS:-825}"
 CLIENT_DAYS="${CLIENT_DAYS:-825}"
 KEY_BITS="${KEY_BITS:-2048}"   # 2048 por compatibilidade com o TLS do ESP32
@@ -66,17 +31,18 @@ CA_SUBJECT="${CA_SUBJECT:-/C=BR/O=IoT StressBed/OU=Research/CN=IoT StressBed Loc
 SERVER_CN="${SERVER_CN:-mosquitto-secure}"
 SERVER_SUBJECT="${SERVER_SUBJECT:-/C=BR/O=IoT StressBed/OU=Research/CN=${SERVER_CN}}"
 
-# Clientes mTLS: "<basename>:<CN>". O CN é só identidade legível (aparece no log
-# do broker); a autorização NÃO vem dele — ver ADR-0007 e mosquitto.conf
-# (use_identity_as_username fica false para preservar a checagem de senha).
+# Clientes mTLS ("<basename>:<CN>"), um por papel: regerar o certificado de
+# teste (uso manual e healthcheck) não derruba a coleta do adapter `capture`.
+# Os dois são assinados pela mesma CA e valem igual para o broker — o CN não
+# autoriza nada (use_identity_as_username fica false; ver ADR-0007).
 CLIENTS=(
   "client-capture:stressbed-capture"
   "client-test:stressbed-test"
 )
 
-# SANs: o broker é alcançado por nome de serviço (de dentro da rede Docker),
-# por localhost (de fora, via porta publicada) e pelo IP da LAN (pelo ESP32).
-# Acrescente o IP real da máquina via CERT_EXTRA_SAN, ex: CERT_EXTRA_SAN="IP:192.168.0.42".
+# O broker é alcançado pelo nome de serviço (de dentro da rede Docker), por
+# localhost (de fora, via porta publicada) e pelo IP da LAN (pelo ESP32, que
+# precisa do IP real em CERT_EXTRA_SAN).
 BASE_SAN="DNS:${SERVER_CN},DNS:localhost,IP:127.0.0.1"
 EXTRA_SAN="${CERT_EXTRA_SAN:-}"
 if [[ -n "${EXTRA_SAN}" ]]; then
@@ -85,17 +51,25 @@ else
   SAN="${BASE_SAN}"
 fi
 
+usage() {
+  cat <<'USAGE'
+Uso: gen-certs.sh [--force]
+
+  --force, -f   regenera CA, servidor e clientes do zero
+  --help,  -h   esta mensagem
+
+Variáveis: CERT_DIR, CERT_EXTRA_SAN, CA_DAYS, SERVER_DAYS, CLIENT_DAYS, KEY_BITS
+USAGE
+}
+
 FORCE=0
 for arg in "$@"; do
   case "${arg}" in
     --force|-f) FORCE=1 ;;
-    --help|-h)
-      sed -n '2,39p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
-      exit 0
-      ;;
+    --help|-h)  usage; exit 0 ;;
     *)
       echo "gen-certs.sh: argumento desconhecido: ${arg}" >&2
-      echo "Uso: gen-certs.sh [--force]" >&2
+      usage >&2
       exit 2
       ;;
   esac
@@ -105,10 +79,6 @@ log()  { printf '[gen-certs] %s\n' "$*"; }
 fail() { printf '[gen-certs] ERRO: %s\n' "$*" >&2; exit 1; }
 
 command -v openssl >/dev/null 2>&1 || fail "openssl não encontrado no PATH."
-
-# --------------------------------------------------------------------------- #
-# Idempotência
-# --------------------------------------------------------------------------- #
 
 mkdir -p "${CERT_DIR}"
 
@@ -141,10 +111,6 @@ fi
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
 
-# --------------------------------------------------------------------------- #
-# 1. CA local
-# --------------------------------------------------------------------------- #
-
 log "gerando CA local (${KEY_BITS} bits, ${CA_DAYS} dias)…"
 openssl genrsa -out "${CERT_DIR}/ca.key" "${KEY_BITS}" 2>/dev/null
 chmod 600 "${CERT_DIR}/ca.key"
@@ -169,16 +135,10 @@ openssl req -new -x509 \
   -config "${TMP_DIR}/ca.cnf" \
   -extensions v3_ca
 
-# --------------------------------------------------------------------------- #
-# 2. Certificado do servidor (broker), assinado pela CA
-# --------------------------------------------------------------------------- #
-
 log "gerando chave e CSR do servidor (CN=${SERVER_CN})…"
 openssl genrsa -out "${CERT_DIR}/server.key" "${KEY_BITS}" 2>/dev/null
-# 0640 (não 0600): num bind mount Linux o container mosquitto roda como uid 1883
-# e precisa conseguir ler a chave. Quem guarda o segredo de verdade é ca.key
-# (0600, nunca entra em container) — server.key é uma chave de laboratório,
-# vive em diretório gitignored e é descartável via `gen-certs.sh --force`.
+# 0640 e não 0600: em bind mount Linux o container roda como uid 1883 e precisa
+# ler a chave. O segredo que importa é ca.key (0600, nunca entra em container).
 chmod "${SERVER_KEY_MODE:-0640}" "${CERT_DIR}/server.key"
 
 cat > "${TMP_DIR}/server.cnf" <<EOF
@@ -215,21 +175,11 @@ openssl x509 -req \
   -extfile "${TMP_DIR}/server.cnf" \
   -extensions v3_server 2>/dev/null
 
-# Certificados são públicos; as chaves privadas já receberam modo restrito acima.
 chmod 644 "${CERT_DIR}/ca.crt" "${CERT_DIR}/server.crt"
 
-# --------------------------------------------------------------------------- #
-# 3. Certificados de CLIENTE (mTLS), assinados pela MESMA CA
-# --------------------------------------------------------------------------- #
-#
-# O broker exige `require_certificate true` (ADR-0007): sem um destes, o
-# handshake TLS é abortado antes do CONNECT do MQTT.
-#
-# extendedKeyUsage = clientAuth (e NÃO serverAuth): um certificado de cliente
-# não deve poder se passar pelo broker. Sem subjectAltName: quem valida nome de
-# host é o cliente contra o servidor, não o contrário — o broker só verifica a
-# cadeia até a CA.
-
+# clientAuth e não serverAuth: um certificado de cliente não pode se passar
+# pelo broker. Sem subjectAltName porque quem valida nome de host é o cliente
+# contra o servidor, não o contrário — o broker só verifica a cadeia até a CA.
 cat > "${TMP_DIR}/client.cnf" <<'EOF'
 [req]
 distinguished_name = dn
@@ -250,9 +200,7 @@ for spec in "${CLIENTS[@]}"; do
 
   log "gerando chave e CSR do cliente '${client_name}' (CN=${client_cn})…"
   openssl genrsa -out "${CERT_DIR}/${client_name}.key" "${KEY_BITS}" 2>/dev/null
-  # 0640 pelo mesmo motivo de server.key: o container precisa conseguir ler a
-  # cópia montada rodando como uid 1883. Chave de laboratório, gitignored e
-  # descartável via --force.
+  # 0640 pelo mesmo motivo de server.key.
   chmod "${CLIENT_KEY_MODE:-0640}" "${CERT_DIR}/${client_name}.key"
 
   openssl req -new \
@@ -278,20 +226,13 @@ for spec in "${CLIENTS[@]}"; do
   chmod 644 "${CERT_DIR}/${client_name}.crt"
 done
 
-# --------------------------------------------------------------------------- #
-# 4. Verificação (smoke test embutido)
-# --------------------------------------------------------------------------- #
-
 log "verificando cadeia…"
 openssl verify -CAfile "${CERT_DIR}/ca.crt" "${CERT_DIR}/server.crt"
 for spec in "${CLIENTS[@]}"; do
-  # -purpose sslclient: falha se o certificado não servir para autenticar um
-  # cliente (é exatamente o uso que o broker vai exigir).
   openssl verify -CAfile "${CERT_DIR}/ca.crt" -purpose sslclient \
     "${CERT_DIR}/${spec%%:*}.crt"
 done
 
-# A chave privada precisa corresponder ao certificado emitido.
 for pair in server "${CLIENTS[@]%%:*}"; do
   name="${pair%%:*}"
   key_mod="$(openssl rsa  -in "${CERT_DIR}/${name}.key" -noout -modulus 2>/dev/null)"
