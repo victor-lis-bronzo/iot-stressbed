@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { getToken } from '../lib/auth';
 
@@ -14,14 +14,73 @@ interface TelemetryData {
   raw: string;
 }
 
+interface Reading extends TelemetryData {
+  seq: number;
+}
+
 interface Props {
   broker: 'plain' | 'secure';
   title: string;
 }
 
+const ACCENT = {
+  plain: {
+    border: 'border-exposed',
+    headerBg: 'bg-exposed/10',
+    text: 'text-exposed',
+    bar: 'bg-exposed',
+  },
+  secure: {
+    border: 'border-secured',
+    headerBg: 'bg-secured/10',
+    text: 'text-secured',
+    bar: 'bg-secured',
+  },
+} as const;
+
+/**
+ * Uma linha de leitura. Monta com opacidade 0 e sobe para 1 no primeiro frame,
+ * de modo que apenas a leitura recem-chegada (a unica que monta) faz o fade.
+ * As linhas anteriores mantem chaves estaveis, nao remontam e nao reanimam.
+ */
+function ReadingRow({ item }: { item: Reading }) {
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setVisible(true));
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  return (
+    <div
+      className={`border-b border-border px-3 py-1.5 transition-opacity duration-500 ${
+        visible ? 'opacity-100' : 'opacity-0'
+      }`}
+    >
+      <div className="flex justify-between text-muted">
+        <span>{new Date(item.receivedAt).toLocaleTimeString()}</span>
+        <span>{item.topic}</span>
+      </div>
+      <div className="grid grid-cols-2 gap-2 text-primary">
+        <div>
+          <span className="text-muted">T:</span>{' '}
+          {item.temperature !== null ? `${item.temperature.toFixed(1)}°C` : 'N/A'}
+        </div>
+        <div>
+          <span className="text-muted">H:</span>{' '}
+          {item.humidity !== null ? `${item.humidity.toFixed(1)}%` : 'N/A'}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function TelemetryStream({ broker, title }: Props) {
-  const [data, setData] = useState<TelemetryData[]>([]);
+  const [data, setData] = useState<Reading[]>([]);
   const [connected, setConnected] = useState(false);
+  const seqRef = useRef(0);
+
+  const accent = ACCENT[broker];
 
   useEffect(() => {
     const token = getToken();
@@ -40,7 +99,8 @@ export default function TelemetryStream({ broker, title }: Props) {
 
     socket.on(`telemetry:${broker}`, (payload: TelemetryData) => {
       setData((prev) => {
-        const newData = [payload, ...prev];
+        seqRef.current += 1;
+        const newData = [{ ...payload, seq: seqRef.current }, ...prev];
         if (newData.length > 50) return newData.slice(0, 50);
         return newData;
       });
@@ -52,39 +112,33 @@ export default function TelemetryStream({ broker, title }: Props) {
   }, [broker]);
 
   return (
-    <div className={`flex flex-col h-[600px] rounded-lg border ${broker === 'secure' ? 'border-green-500/50' : 'border-blue-500/50'} bg-white dark:bg-zinc-800 overflow-hidden`}>
-      <div className={`px-4 py-3 border-b flex items-center justify-between ${broker === 'secure' ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'}`}>
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
-          {title}
-          <span className={`ml-3 w-2.5 h-2.5 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`} title={connected ? 'Conectado' : 'Desconectado'} />
-        </h3>
-        <span className="text-xs font-mono text-gray-500">
-          WS: {connected ? 'Connected' : 'Disconnected'}
-        </span>
+    <div className={`flex flex-col h-[600px] border ${accent.border} bg-panel overflow-hidden`}>
+      <div
+        className={`px-4 py-3 border-b border-border flex items-center justify-between ${accent.headerBg}`}
+      >
+        <h3 className={`text-sm font-semibold uppercase tracking-wider ${accent.text}`}>{title}</h3>
+        <div className="flex items-center gap-2">
+          <span
+            aria-hidden="true"
+            className={`h-1.5 w-4 ${connected ? accent.bar : 'bg-muted'}`}
+          />
+          <span
+            className={`text-xs font-mono uppercase tracking-wide ${
+              connected ? accent.text : 'text-muted'
+            }`}
+          >
+            {connected ? 'Link ativo' : 'Sem conexão'}
+          </span>
+        </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 bg-gray-50 dark:bg-zinc-900 font-mono text-xs">
+      <div className="flex-1 overflow-y-auto bg-base font-mono text-xs">
         {data.length === 0 ? (
-          <div className="text-center text-gray-400 mt-10">
-            Aguardando dados...
-          </div>
+          <div className="text-center text-muted mt-10">Aguardando dados...</div>
         ) : (
-          <div className="space-y-2">
-            {data.map((item, i) => (
-              <div key={i} className="p-2 bg-white dark:bg-zinc-800 rounded border border-gray-200 dark:border-zinc-700 shadow-sm">
-                <div className="flex justify-between text-gray-500 mb-1">
-                  <span>{new Date(item.receivedAt).toLocaleTimeString()}</span>
-                  <span>{item.topic}</span>
-                </div>
-                <div className="grid grid-cols-2 gap-2 text-gray-800 dark:text-gray-200">
-                  <div>
-                    <span className="text-gray-400">T:</span> {item.temperature !== null ? `${item.temperature.toFixed(1)}°C` : 'N/A'}
-                  </div>
-                  <div>
-                    <span className="text-gray-400">H:</span> {item.humidity !== null ? `${item.humidity.toFixed(1)}%` : 'N/A'}
-                  </div>
-                </div>
-              </div>
+          <div>
+            {data.map((item) => (
+              <ReadingRow key={item.seq} item={item} />
             ))}
           </div>
         )}
