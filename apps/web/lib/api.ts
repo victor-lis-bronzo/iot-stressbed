@@ -1,29 +1,10 @@
-import axios from 'axios';
-import { getToken, removeToken } from './auth';
+import axios, { type AxiosInstance } from 'axios';
 
-const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000',
-});
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
-api.interceptors.request.use((config) => {
-  const token = getToken();
-  if (token && config.headers) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      removeToken();
-      if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
-        window.location.href = '/login';
-      }
-    }
-    return Promise.reject(error);
-  }
-);
-
-export default api;
+export function createApiClient(accessToken?: string): AxiosInstance {
+  return axios.create({
+    baseURL: API_BASE_URL,
+    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+  });
+}
