@@ -9,12 +9,13 @@ interface NavItem {
   name: string;
   icon: LucideIcon;
   href?: string;
+  availableFrom?: string;
 }
 
 const navItems: NavItem[] = [
   { name: 'Dashboard', href: '/dashboard', icon: Activity },
-  { name: 'Interceptação', href: '/interception', icon: ShieldAlert },
-  { name: 'Console de Ataque', icon: Cpu },
+  { name: 'Interceptação', icon: ShieldAlert, availableFrom: 'Fase 2' },
+  { name: 'Console de Ataque', icon: Cpu, availableFrom: 'Fase 4' },
   { name: 'Sensores', href: '/sensors', icon: Settings },
 ];
 
@@ -40,7 +41,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 <span
                   key={item.name}
                   aria-disabled="true"
-                  title="Disponível na Fase 4"
+                  title={`Disponível na ${item.availableFrom}`}
                   className="flex cursor-not-allowed items-center gap-3 rounded border-l-2 border-transparent px-3 py-2 text-sm text-muted opacity-40"
                 >
                   <item.icon className="h-4 w-4 flex-shrink-0 text-muted" aria-hidden="true" />
