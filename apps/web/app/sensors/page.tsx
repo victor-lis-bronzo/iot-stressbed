@@ -44,38 +44,38 @@ export default function SensorsPage() {
   return (
     <div className="max-w-4xl mx-auto">
       <div className="mb-8">
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Gerenciamento de Sensores</h2>
-        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+        <h2 className="text-2xl font-bold text-primary">Gerenciamento de Sensores</h2>
+        <p className="mt-1 text-sm text-muted">
           Cadastre ou remova sensores para o experimento.
         </p>
       </div>
 
       <SensorForm onSuccess={fetchSensors} />
 
-      <div className="bg-white dark:bg-zinc-800 shadow rounded-lg overflow-hidden">
-        <div className="px-4 py-5 border-b border-gray-200 dark:border-zinc-700 sm:px-6">
-          <h3 className="text-lg leading-6 font-medium text-gray-900 dark:text-white">Sensores Cadastrados</h3>
+      <div className="bg-panel border border-border rounded overflow-hidden">
+        <div className="px-4 py-5 border-b border-border sm:px-6">
+          <h3 className="text-lg leading-6 font-medium text-primary">Sensores Cadastrados</h3>
         </div>
-        
+
         {loading ? (
-          <div className="p-6 text-center text-gray-500">Carregando...</div>
+          <div className="p-6 text-center text-muted">Carregando...</div>
         ) : sensors.length === 0 ? (
-          <div className="p-6 text-center text-gray-500">Nenhum sensor cadastrado.</div>
+          <div className="p-6 text-center text-muted">Nenhum sensor cadastrado.</div>
         ) : (
-          <ul className="divide-y divide-gray-200 dark:divide-zinc-700">
+          <ul className="divide-y divide-border">
             {sensors.map((sensor) => (
               <li key={sensor.id} className="px-4 py-4 sm:px-6 flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-blue-600 dark:text-blue-400 truncate">{sensor.name}</p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{sensor.description || 'Sem descrição'}</p>
+                  <p className="text-sm font-medium text-secured truncate">{sensor.name}</p>
+                  <p className="text-sm text-muted mt-1">{sensor.description || 'Sem descrição'}</p>
                 </div>
                 <div className="flex items-center">
-                  <span className="text-xs text-gray-400 mr-4">
+                  <span className="text-xs text-muted mr-4">
                     Criado em {new Date(sensor.createdAt).toLocaleDateString()}
                   </span>
                   <button
                     onClick={() => handleDelete(sensor.id)}
-                    className="text-red-500 hover:text-red-700 transition-colors"
+                    className="text-critical hover:opacity-80 transition-opacity"
                     title="Remover"
                   >
                     <Trash2 className="h-5 w-5" />
