@@ -33,6 +33,6 @@ export class RealtimeGateway implements OnGatewayConnection {
 
   @OnEvent(TELEMETRY_CAPTURED)
   broadcastTelemetry(point: TelemetryPoint): void {
-    this.server?.emit('telemetry', point);
+    this.server?.emit(`telemetry:${point.broker}`, point);
   }
 }

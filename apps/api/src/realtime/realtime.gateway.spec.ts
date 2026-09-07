@@ -31,14 +31,17 @@ describe('RealtimeGateway', () => {
     } as unknown as Server;
   });
 
-  it('broadcasts both capture streams keeping the broker tag in the payload', () => {
+  it('broadcasts each capture stream on its own event', () => {
     gateway.broadcastTelemetry(pointFrom('plain', 'esp32-01'));
     gateway.broadcastTelemetry(pointFrom('secure', 'esp32-02'));
 
-    expect(emitted.map(([event]) => event)).toEqual(['telemetry', 'telemetry']);
-    expect(emitted.map(([, payload]) => payload.broker)).toEqual([
-      'plain',
-      'secure',
+    expect(emitted.map(([event]) => event)).toEqual([
+      'telemetry:plain',
+      'telemetry:secure',
+    ]);
+    expect(emitted.map(([, payload]) => payload.sensorId)).toEqual([
+      'esp32-01',
+      'esp32-02',
     ]);
   });
 });
