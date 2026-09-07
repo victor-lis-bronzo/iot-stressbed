@@ -73,3 +73,60 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+
+  # ========================================================================= #
+  # mosquitto-secure — GRUPO DE CONTROLE (MQTTS: TLS + usuário/senha + ACL)
+  # ========================================================================= #
+  # Pré-requisito: ./scripts/gen-certs.sh (o entrypoint falha com mensagem
+  # explícita se os certificados não existirem).
+  mosquitto-secure:
+    image: eclipse-mosquitto:2.0.20
+    container_name: mosquitto-secure
+    hostname: mosquitto-secure
+
+    restart: "no"
+
+    ports:
+      - "${MQTT_SECURE_PORT:-8883}:8883"
+
+    # O entrypoint próprio materializa passwd/ACL a partir do .env e então
+    # entrega o controle ao CMD (mosquitto). Roda como o usuário mosquitto
+    # (uid 1883) da imagem — sem root.
+    entrypoint: ["/entrypoint/docker-entrypoint.sh"]
+    command: ["/usr/sbin/mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
+
+    environment:
+      MQTT_SECURE_USERNAME: ${MQTT_SECURE_USERNAME:?defina MQTT_SECURE_USERNAME no .env}
+      MQTT_SECURE_PASSWORD: ${MQTT_SECURE_PASSWORD:?defina MQTT_SECURE_PASSWORD no .env}
+
+    volumes:
+      - ./infra/mosquitto/secure/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./infra/mosquitto/secure/acl.template:/mosquitto/config/acl.template:ro
+      - ./infra/mosquitto/secure/docker-entrypoint.sh:/entrypoint/docker-entrypoint.sh:ro
+      # Certificados gerados por scripts/gen-certs.sh — read-only, o broker só lê.
+      - ./infra/mosquitto/secure/certs:/mosquitto/certs:ro
+
+    networks:
+      - stressbed-net
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Healthcheck exercita o caminho completo do grupo de controle: TLS
+    # (validando o certificado do servidor contra a CA), autenticação por
+    # senha e a ACL de leitura de $SYS. `localhost` está no SAN do certificado.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          mosquitto_sub --cafile /mosquitto/certs/ca.crt
+          -h localhost -p 8883
+          -u "$$MQTT_SECURE_USERNAME" -P "$$MQTT_SECURE_PASSWORD"
+          -t '$$SYS/broker/uptime' -C 1 -W 3 >/dev/null 2>&1
+      interval: 10s
+      timeout: 8s
+      retries: 3
+      start_period: 5s
