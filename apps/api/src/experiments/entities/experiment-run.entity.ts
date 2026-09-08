@@ -2,12 +2,17 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  Index,
   PrimaryGeneratedColumn,
 } from 'typeorm';
 
 export type RunMode = 'plain' | 'secure';
 
 @Entity('experiment_runs')
+@Index('experiment_runs_single_active_run', ['endedAt'], {
+  unique: true,
+  where: '"ended_at" IS NULL',
+})
 export class ExperimentRun {
   @PrimaryGeneratedColumn('uuid')
   id: string;
