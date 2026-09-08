@@ -123,6 +123,11 @@ o porquê de o resto do backend ser modular pragmático em vez de clean/hexagona
    troca apenas a configuração de conexão (TLS + credenciais) do mesmo
    `MqttSubscriberPort`, sem lógica condicional espalhada.
 
+O container `mock-sensor` (`scripts/mock-sensor.py`) é o publisher legítimo de baseline
+usado em dev/CI no lugar do ESP32: roda continuamente desde o `docker compose up`,
+publicando nos dois brokers, e gera a telemetria gravada como `source=legit` — em
+contraste com `attacker`, que só publica sob demanda durante uma run de injeção.
+
 ## Isolamento de recursos
 
 Ver [[ADR-0004]] para a decisão completa. Resumo: `mosquitto-plain`, `mosquitto-secure`

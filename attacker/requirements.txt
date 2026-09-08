@@ -1,1 +1,2 @@
-# Placeholder — paho-mqtt e demais deps dos flooders/injector (Track A/B).
+paho-mqtt>=2.1,<3
+pytest>=8,<9

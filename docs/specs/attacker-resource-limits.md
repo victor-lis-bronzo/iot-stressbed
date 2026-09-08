@@ -10,9 +10,11 @@ de "a máquina toda travou" — o que invalida cientificamente o experimento. Os
 em nível arquitetural, e o `.env.example` já reserva os valores numéricos
 (`ATTACKER_CPUSET`/`CPUS`/`MEMORY`/`MEMSWAP`/`PIDS`).
 
-O que falta é um documento único e focado que amarre esses valores a um bloco de
-configuração pronto para uso e a um checklist de verificação executável. Hoje quem for
-implementar o serviço `attacker` (Fase 4, per `docs/tasks.md`) só tem referências
+O serviço `attacker` do Track A (injeção) já está implementado no
+`docker-compose.yml` nesta branch, com exatamente este bloco de limites aplicado.
+Este documento amarra esses valores à justificativa de cada um e a um checklist de
+verificação executável. Quem for validar o serviço `attacker` (Fase 4, per
+`docs/tasks.md`) tinha referências
 espalhadas em três documentos diferentes — um dos quais (`docs/test-plans/fase-0.5-infra.md`)
 ainda rotula esse trabalho futuro como "Fase 3", inconsistente com a numeração de fases
 já usada no backlog atual.
@@ -85,9 +87,9 @@ inconsistência de rotulação "Fase 3" → "Fase 4" nos documentos que a mencio
 - O bloco de configuração de cgroups documentado aqui segue exatamente o padrão de
   chaves já usado em `mosquitto-plain`/`mosquitto-secure` no `docker-compose.yml`
   (`cpuset`, `cpus`, `mem_limit`, `memswap_limit`, `pids_limit`, todos com fallback via
-  variável de ambiente). Ele **não é aplicado ao `docker-compose.yml` agora** — o
-  serviço `attacker` ainda não existe (sem Dockerfile/imagem, não há em que pendurar o
-  bloco); fica documentado aqui para ser colado quando a Fase 4 criar o serviço:
+  variável de ambiente). Este bloco **já está aplicado ao serviço `attacker` no
+  `docker-compose.yml`** nesta branch (Track A — injeção); fica reproduzido aqui
+  como referência da justificativa de cada valor:
   ```yaml
   cpuset: ${ATTACKER_CPUSET:-4,5}
   cpus: ${ATTACKER_CPUS:-2.0}
@@ -119,9 +121,10 @@ inconsistência de rotulação "Fase 3" → "Fase 4" nos documentos que a mencio
 
 ## Out of Scope
 
-- Implementação do serviço `attacker` em si no `docker-compose.yml` (Dockerfile,
-  imagem, script Python de flooding/injeção) — isso é o próprio trabalho da Fase 4;
-  este spec só prepara o terreno de limites de recurso.
+- Os scripts de flooding do Track B (connection/message flood, payload malformado)
+  e sua entrada no serviço `attacker` — o serviço já existe no compose com o injetor
+  do Track A, mas o flooding é trabalho posterior; este spec só cobre os limites de
+  recurso do container.
 - Qualquer script de ataque (connection flood, message flood, payload malformado) —
   coberto por `docs/specs/track-b-availability-dos.md`.
 - Ajuste dos valores numéricos de limite do broker (`mosquitto-plain`/`secure`) — já
