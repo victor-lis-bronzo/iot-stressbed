@@ -532,8 +532,10 @@ docker compose down      # desce limpo
 
 - **Fase 1:** derrubar o `nestjs-api` durante coleta e confirmar que
   `broker_metrics` continua sendo gravado (fechamento do ADR-0003, §6.1).
-- **Fase 3:** ao criar o serviço `attacker`, aplicar os limites `ATTACKER_*` já
+- **Fase 4:** ao criar o serviço `attacker`, aplicar os limites `ATTACKER_*` já
   reservados no `.env.example` e repetir §5.1/§5.2 apontando para ele — o
-  ADR-0004 exige os mesmos limites no atacante.
-- **Fase 3:** repetir §5.2 com um ataque real (não carga sintética) e confirmar
-  que o host segue responsivo, conforme o protocolo de experimento.
+  ADR-0004 exige os mesmos limites no atacante. Roteiro completo (valores,
+  bloco de compose pronto e checklist) em
+  `docs/specs/attacker-resource-limits.md`.
+- **Fase 4:** repetir §5.2 com um ataque real (não carga sintética) e confirmar
+  que o host segue responsivo, conforme `docs/specs/attacker-resource-limits.md`.
