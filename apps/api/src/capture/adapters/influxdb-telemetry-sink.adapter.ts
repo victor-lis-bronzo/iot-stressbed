@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { InfluxDB, Point, WriteApi } from '@influxdata/influxdb-client';
 import { CaptureMetaEvent, TelemetryPoint } from '../ports/telemetry';
 import { TelemetrySinkPort } from '../ports/telemetry-sink.port';
@@ -10,13 +11,23 @@ export interface InfluxSinkConfig {
 }
 
 export class InfluxdbTelemetrySinkAdapter implements TelemetrySinkPort {
+  private readonly logger = new Logger(InfluxdbTelemetrySinkAdapter.name);
   private readonly writeApi: WriteApi;
 
   constructor(config: InfluxSinkConfig) {
     this.writeApi = new InfluxDB({
       url: config.url,
       token: config.token,
-    }).getWriteApi(config.org, config.bucket, 'ms');
+    }).getWriteApi(config.org, config.bucket, 'ms', {
+      writeFailed: (error, lines, attempt) => {
+        this.logger.error(
+          `InfluxDB write failed (attempt ${attempt}, ${lines.length} line(s)): ${error}`,
+        );
+      },
+      writeSuccess: (lines) => {
+        this.logger.debug(`InfluxDB write succeeded (${lines.length} line(s))`);
+      },
+    });
   }
 
   async writePoint(point: TelemetryPoint): Promise<void> {
