@@ -290,7 +290,7 @@ maior que isso na prática, quebrar mais). "Pronto quando" é sempre verificáve
   responsivo (confirmado por `docker stats` fora dos containers limitados).
 - Depende de: Aplicar limites de recurso (Fase 0.5), Medir KPIs do Track B.
 - Tamanho: P.
-- Teste: manual, checklist do protocolo de experimento.
+- Teste: manual, checklist em `docs/specs/attacker-resource-limits.md`.
 
 ---
 
