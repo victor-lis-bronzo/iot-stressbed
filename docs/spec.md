@@ -53,14 +53,13 @@ reproduzíveis por `run_id`), e a própria plataforma "IoT StressBed" como demon
 ### Fluxos
 1. **B1 Connection flood**: container `attacker` abre milhares de conexões TCP/MQTT
    zumbis contra o broker (via Paho), simulando ataque de exaustão de conexões.
-2. **B2 Message flood**: tempestade de PUBLISH em alta taxa, via container `attacker`
-   e/ou firmware ESP32 `attack` reprogramado para disparo no clock máximo.
+2. **B2 Message flood**: tempestade de PUBLISH em alta taxa, via container `attacker`.
 3. **B3 Payload malformado/gigante**: mensagens malformadas ou anormalmente grandes
    enviadas ao broker para testar robustez de parsing/buffer.
 4. Cada fluxo é repetido contra broker plain e broker secure, com os mesmos parâmetros
    de carga, para medir o overhead de TLS.
 
-### KPIs (coletados por telegraf/cAdvisor, caminho independente do NestJS)
+### KPIs (coletados por telegraf (input `docker`), caminho independente do NestJS)
 - CPU % e RAM (MB) do container do broker sob carga.
 - File descriptors abertos / conexões ativas no ponto de falha.
 - Latência ponta-a-ponta (ms) publisher legítimo → dashboard, baseline vs sob ataque.
@@ -77,7 +76,7 @@ reproduzíveis por `run_id`), e a própria plataforma "IoT StressBed" como demon
       de recursos por cgroups funciona) — verificável via `docker stats` fora dos containers
       limitados.
 - [ ] As métricas de saúde do broker vêm exclusivamente do coletor independente
-      (telegraf/cAdvisor), nunca do caminho do NestJS.
+      (telegraf (input `docker`)), nunca do caminho do NestJS.
 - [ ] O mesmo ataque contra o broker secure produz métricas comparáveis (mesma carga),
       permitindo calcular o delta de overhead do TLS.
 - [ ] Cada execução é uma run com `run_id` próprio e reproduzível via

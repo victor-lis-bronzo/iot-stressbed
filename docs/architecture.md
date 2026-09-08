@@ -13,14 +13,15 @@ e alternativas descartadas vivem em `docs/adr/`; este arquivo é a visão consol
   telemetria ([[ADR-0001]]).
 - **InfluxDB + Grafana**: série temporal — telemetria capturada e métricas de saúde do
   broker/host ([[ADR-0001]]).
-- **Telegraf + cAdvisor**: coletor independente de métricas de container/host,
+- **Telegraf (input `docker`)**: coletor independente de métricas de container/host,
   escrevendo direto no InfluxDB, sem passar pelo NestJS ([[ADR-0003]]).
-- **Mosquitto** (dois brokers: plain 1883 sem TLS/auth, secure 8883 TLS+auth): alvo e
-  grupo de controle.
+- **Mosquitto** (dois brokers: plain 1883 sem TLS/auth, secure 8883 TLS+mTLS+senha):
+  alvo e grupo de controle ([[ADR-0007]]).
 - **Docker Compose** com limites de cgroups nativos (cpuset, memory, pids-limit) para
   broker e atacante ([[ADR-0004]]).
-- **ESP32 (C++/Arduino ou PlatformIO)**: publisher legítimo (firmware `baseline`) e,
-  opcionalmente, publisher malicioso de alta taxa (firmware `attack`).
+- **ESP32 (C++/Arduino ou PlatformIO)**: publisher legítimo, único firmware
+  (`sensor`). Toda a carga maliciosa de Track A/B vem do container `attacker`, não do
+  hardware.
 - **Python + Paho**: container `attacker` para os fluxos de flooding/injeção do Track B
   e injeção do Track A.
 
@@ -28,9 +29,9 @@ e alternativas descartadas vivem em `docs/adr/`; este arquivo é a visão consol
 
 ```
                           ┌─────────────┐     ┌──────────────┐
-   ESP32 (baseline) ────► │ mosquitto-  │◄────┤   attacker   │
+   ESP32 (sensor) ──────► │ mosquitto-  │◄────┤   attacker   │
                           │   plain     │     │  (Paho, CPU/ │
-   ESP32 (attack, opc) ─► │  (1883)     │     │  RAM limited)│
+                          │  (1883)     │     │  RAM limited)│
                           └──────┬──────┘     └──────────────┘
                                  │  subscribe #
                                  ▼
@@ -55,9 +56,9 @@ e alternativas descartadas vivem em `docs/adr/`; este arquivo é a visão consol
                              ▲
                      writes  │ (caminho independente, sem
                              │  passar pelo nestjs-api)
-                        ┌────┴────┐
+                        ┌─────────┐
                         │telegraf │◄── scrapes ── mosquitto-plain,
-                        │+cAdvisor│               mosquitto-secure,
+                        │(docker) │               mosquitto-secure,
                         └─────────┘               attacker (container stats)
                              │
                              ▼
@@ -98,7 +99,7 @@ o porquê de o resto do backend ser modular pragmático em vez de clean/hexagona
 - measurement `telemetry` — tags: `run_id`, `sensor_id`, `broker` (plain|secure),
   `source` (legit|injected). Escrito exclusivamente pelo módulo `capture`.
 - measurement `broker_metrics` — tags: `run_id`, `broker`. Escrito exclusivamente por
-  telegraf/cAdvisor, nunca pelo `nestjs-api` ([[ADR-0003]]).
+  telegraf (input `docker`), nunca pelo `nestjs-api` ([[ADR-0003]]).
 - measurement `capture_meta` — eventos de falha/reconexão do `capture` (ex: broker caiu
   durante um flood), para que a ausência de dados seja distinguível de "sem mensagens".
 
@@ -114,7 +115,7 @@ o porquê de o resto do backend ser modular pragmático em vez de clean/hexagona
    (tag `source=injected` vem do metadado da run, não de detecção).
 4. **Track B (DoS)**: `experiments` inicia uma run com `attack_type` e `mode` →
    `attacker` dispara connection/message/malformed flood contra o broker escolhido →
-   telegraf/cAdvisor captura degradação de CPU/RAM/conexões do broker (caminho
+   telegraf (input `docker`) captura degradação de CPU/RAM/conexões do broker (caminho
    independente) → `capture`/`realtime` continuam ativos e reportam a degradação de
    latência percebida pelo usuário final como métrica complementar (aceitável que
    degrade junto — não é a fonte da verdade sobre a saúde do broker).
@@ -137,3 +138,4 @@ para host + stack de observação (Postgres, InfluxDB, Grafana, telegraf, nestjs
 - [[ADR-0004]] — Isolamento de recursos via cgroups nativos do Docker.
 - [[ADR-0005]] — Autenticação obrigatória em todas as rotas do dashboard.
 - [[ADR-0006]] — Uma run ativa por vez (sem experimentos concorrentes).
+- [[ADR-0007]] — mTLS (certificado de cliente) no broker secure.

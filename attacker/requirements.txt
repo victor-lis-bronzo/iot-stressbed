@@ -1,0 +1,1 @@
+# Placeholder — paho-mqtt e demais deps dos flooders/injector (Track A/B).
