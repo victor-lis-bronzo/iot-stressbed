@@ -1,0 +1,15 @@
+# ACL do broker secure. O entrypoint substitui __MQTT_USER__ pelo valor de
+# MQTT_SECURE_USERNAME — nenhuma credencial real é versionada aqui.
+#
+# O que não é explicitamente concedido é negado. Não existe seção de tópicos
+# anônimos porque, com allow_anonymous false, clientes anônimos são recusados
+# no CONNECT e nunca chegam à ACL.
+
+user __MQTT_USER__
+
+topic write sensors/#
+topic read sensors/#
+
+topic readwrite stressbed/#
+
+topic read $SYS/#
