@@ -23,15 +23,31 @@ export class ExperimentsService {
         `A run is already active (id=${active.id}); stop it before starting another`,
       );
     }
-    return this.runs.save(
-      this.runs.create({
-        mode: dto.mode,
-        attackType: dto.attackType,
-        params: dto.params ?? null,
-        notes: dto.notes ?? null,
-        endedAt: null,
-      }),
-    );
+    try {
+      return await this.runs.save(
+        this.runs.create({
+          mode: dto.mode,
+          attackType: dto.attackType,
+          params: dto.params ?? null,
+          notes: dto.notes ?? null,
+          endedAt: null,
+        }),
+      );
+    } catch (error) {
+      if (this.isUniqueViolation(error)) {
+        throw new ConflictException(
+          'A run is already active; stop it before starting another',
+        );
+      }
+      throw error;
+    }
+  }
+
+  private isUniqueViolation(error: unknown): boolean {
+    const code =
+      (error as { code?: string; driverError?: { code?: string } })?.code ??
+      (error as { driverError?: { code?: string } })?.driverError?.code;
+    return code === '23505';
   }
 
   async stop(): Promise<ExperimentRun | null> {
