@@ -15,12 +15,14 @@ export interface MqttConnectionConfig {
   key?: Buffer;
   rejectUnauthorized?: boolean;
   clientId?: string;
+  reconnectPeriod?: number;
 }
 
 export class MosquittoSubscriberAdapter implements MqttSubscriberPort {
   private client?: MqttClient;
   private connectionLostHandler?: (reason: string) => void;
   private closing = false;
+  private subscribedTopic?: string;
 
   constructor(private readonly config: MqttConnectionConfig) {}
 
@@ -38,7 +40,7 @@ export class MosquittoSubscriberAdapter implements MqttSubscriberPort {
       clientId:
         this.config.clientId ??
         `stressbed-capture-${Math.random().toString(16).slice(2, 10)}`,
-      reconnectPeriod: 0,
+      reconnectPeriod: this.config.reconnectPeriod ?? 2000,
     };
 
     return new Promise((resolve, reject) => {
@@ -62,6 +64,7 @@ export class MosquittoSubscriberAdapter implements MqttSubscriberPort {
 
   subscribe(topicFilter: string, onMessage: MqttMessageHandler): Promise<void> {
     const client = this.requireClient();
+    this.subscribedTopic = topicFilter;
     client.on('message', (topic, payload) => {
       void onMessage({ topic, payload: payload.toString() });
     });
@@ -87,6 +90,18 @@ export class MosquittoSubscriberAdapter implements MqttSubscriberPort {
   private attachConnectionLostListeners(client: MqttClient): void {
     client.on('close', () => this.reportLost('connection closed'));
     client.on('error', (err) => this.reportLost(err.message));
+    client.on('connect', () => this.resubscribeAfterReconnect(client));
+  }
+
+  private resubscribeAfterReconnect(client: MqttClient): void {
+    if (this.closing || !this.subscribedTopic) {
+      return;
+    }
+    client.subscribe(this.subscribedTopic, { qos: 0 }, (err) => {
+      if (err) {
+        this.reportLost(`resubscribe failed: ${err.message}`);
+      }
+    });
   }
 
   private reportLost(reason: string): void {

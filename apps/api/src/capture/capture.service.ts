@@ -45,26 +45,35 @@ export class CaptureService implements OnModuleInit, OnModuleDestroy {
   async onModuleDestroy() {
     if (this.options.enabled) {
       await this.subscriber.disconnect();
+      await this.sink.close();
     }
   }
 
   async handleMessage(message: RawMqttMessage): Promise<void> {
-    const context = await this.experiments.resolveCaptureContext();
-    const point = this.normalize(message, context.runId, context.source);
-    await this.sink.writePoint(point);
-    this.events.emit(TELEMETRY_CAPTURED, point);
+    try {
+      const context = await this.experiments.resolveCaptureContext();
+      const point = this.normalize(message, context.runId, context.source);
+      await this.sink.writePoint(point);
+      this.events.emit(TELEMETRY_CAPTURED, point);
+    } catch (err) {
+      this.logger.error('failed to process captured message', err as Error);
+    }
   }
 
   private async handleConnectionLost(reason: string): Promise<void> {
-    const { runId } = await this.experiments.resolveCaptureContext();
     this.logger.error(`broker connection lost: ${reason}`);
-    await this.sink.writeMeta({
-      event: 'disconnect',
-      broker: this.options.broker,
-      runId,
-      reason,
-      at: new Date(),
-    });
+    try {
+      const { runId } = await this.experiments.resolveCaptureContext();
+      await this.sink.writeMeta({
+        event: 'disconnect',
+        broker: this.options.broker,
+        runId,
+        reason,
+        at: new Date(),
+      });
+    } catch (err) {
+      this.logger.error('failed to record connection-lost meta event', err as Error);
+    }
   }
 
   private normalize(
