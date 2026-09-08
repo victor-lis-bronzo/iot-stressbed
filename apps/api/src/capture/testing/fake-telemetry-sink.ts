@@ -12,4 +12,6 @@ export class FakeTelemetrySink implements TelemetrySinkPort {
   async writeMeta(event: CaptureMetaEvent): Promise<void> {
     this.metaEvents.push(event);
   }
+
+  async close(): Promise<void> {}
 }

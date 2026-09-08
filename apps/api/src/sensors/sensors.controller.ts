@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   UseGuards,
@@ -47,7 +48,7 @@ export class SensorsController {
   @ApiOperation({ summary: 'Busca um sensor pelo id' })
   @ApiResponse({ status: 200, description: 'Sensor encontrado', type: Sensor })
   @ApiResponse({ status: 404, description: 'Sensor não encontrado' })
-  findOne(@Param('id') id: string) {
+  findOne(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.sensorsService.findOne(id);
   }
 
@@ -55,7 +56,10 @@ export class SensorsController {
   @ApiOperation({ summary: 'Atualiza um sensor' })
   @ApiResponse({ status: 200, description: 'Sensor atualizado', type: Sensor })
   @ApiResponse({ status: 404, description: 'Sensor não encontrado' })
-  update(@Param('id') id: string, @Body() dto: UpdateSensorDto) {
+  update(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body() dto: UpdateSensorDto,
+  ) {
     return this.sensorsService.update(id, dto);
   }
 
@@ -64,7 +68,7 @@ export class SensorsController {
   @ApiOperation({ summary: 'Remove um sensor' })
   @ApiResponse({ status: 204, description: 'Sensor removido' })
   @ApiResponse({ status: 404, description: 'Sensor não encontrado' })
-  remove(@Param('id') id: string) {
+  remove(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.sensorsService.remove(id);
   }
 }
