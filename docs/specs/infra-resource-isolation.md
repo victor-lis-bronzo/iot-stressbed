@@ -52,6 +52,16 @@ de observação, nunca cedidos integralmente ao broker ou ao atacante.
 - Um único `docker-compose.yml` na raiz do projeto orquestra: `mosquitto-plain`,
   `mosquitto-secure`, `postgres`, `influxdb`, `grafana`, `telegraf`, `nestjs-api`,
   `nextjs-web`, `attacker` — todos na rede `stressbed-net` (bridge dedicada).
+- **Bootstrap único (ADR-0008)**: `docker compose up` sozinho sobe tudo, sem passo
+  manual no host. O serviço `certs` (one-shot, `alpine` + `bash`/`openssl`) roda
+  `scripts/gen-certs.sh` dentro de um container antes do `mosquitto-secure` subir
+  (`depends_on: certs: condition: service_completed_successfully`) — idempotente,
+  não regera nada se os certificados já existirem. `nestjs-api`/`nextjs-web` têm
+  Dockerfile próprio (multi-stage, `node:22-alpine`) e sobem como qualquer outro
+  serviço, com `healthcheck` (`GET /health` para a API) gateando quem depende deles.
+- Variáveis de ambiente antes obrigatórias (`${VAR:?...}`) agora têm default de
+  desenvolvimento/pesquisa (`${VAR:-...}`) direto no compose — `.env` é opcional,
+  só necessário para sobrescrever algum valor.
 - Limites de recurso aplicados via as chaves nativas do Compose equivalentes a
   `--cpuset-cpus`, `--cpus`, `--memory`, `--memory-swap` (igual a `--memory`) e
   `--pids-limit`, definidos por container e sobrescritíveis via variáveis de ambiente.

@@ -18,7 +18,9 @@ e alternativas descartadas vivem em `docs/adr/`; este arquivo é a visão consol
 - **Mosquitto** (dois brokers: plain 1883 sem TLS/auth, secure 8883 TLS+mTLS+senha):
   alvo e grupo de controle ([[ADR-0007]]).
 - **Docker Compose** com limites de cgroups nativos (cpuset, memory, pids-limit) para
-  broker e atacante ([[ADR-0004]]).
+  broker e atacante ([[ADR-0004]]). `docker compose up` sozinho sobe toda a topologia,
+  incluindo `nestjs-api`/`nextjs-web` (Dockerfile próprio) e a geração automática dos
+  certificados mTLS ([[ADR-0008]]).
 - **ESP32 (C++/Arduino ou PlatformIO)**: publisher legítimo, único firmware
   (`sensor`). Toda a carga maliciosa de Track A/B vem do container `attacker`, não do
   hardware.
