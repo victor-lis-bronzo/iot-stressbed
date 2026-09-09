@@ -6,6 +6,7 @@ import { AppController } from './app.controller';
 import { AuthModule } from './auth/auth.module';
 import { CaptureModule } from './capture/capture.module';
 import { ExperimentsModule } from './experiments/experiments.module';
+import { MetricsModule } from './metrics/metrics.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { SensorsModule } from './sensors/sensors.module';
 
@@ -33,6 +34,7 @@ import { SensorsModule } from './sensors/sensors.module';
     SensorsModule,
     ExperimentsModule,
     CaptureModule,
+    MetricsModule,
     RealtimeModule,
   ],
   controllers: [AppController],

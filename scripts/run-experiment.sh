@@ -95,6 +95,19 @@ START_RESPONSE="$(curl -sS -X POST "${API_BASE_URL}/experiments/runs/start" \
   -d "{\"mode\":\"${MODE}\",\"attackType\":\"injection\"}")"
 echo "==> run iniciada: ${START_RESPONSE}" >&2
 
+# Mesmo recorte por regex do access_token acima: o corpo é um objeto plano
+# {"id":"...",...}, então extrair "id" por regex evita depender de jq aqui também.
+RUN_ID="$(printf '%s' "$START_RESPONSE" \
+  | grep -o '"id"[[:space:]]*:[[:space:]]*"[^"]*"' \
+  | head -n1 \
+  | sed 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')"
+
+if [[ -z "$RUN_ID" ]]; then
+  echo "erro: não consegui extrair o run id da resposta de start. Resposta:" >&2
+  echo "$START_RESPONSE" >&2
+  exit 1
+fi
+
 # A run precisa ser encerrada mesmo se o injetor falhar. O caso `secure` retorna
 # exit 1 quando o broker aceita o atacante (achado grave) — e mesmo nesse
 # cenário o stop tem que rodar, senão a run fica presa como ativa e bloqueia as
@@ -116,10 +129,24 @@ trap stop_run EXIT
 
 echo "==> disparando attacker (--target ${MODE}) ..." >&2
 set +e
-docker compose exec -T attacker python python/injector.py --target "${MODE}" "$@"
+# injector.py imprime logs em stderr e o InjectionResult (JSON) em stdout, nessa
+# ordem — capturamos só o stdout aqui para poder repassar o JSON intacto ao
+# endpoint de KPI, sem misturar com as linhas de log.
+INJECTOR_OUTPUT="$(docker compose exec -T attacker python python/injector.py --target "${MODE}" "$@")"
 INJECTOR_EXIT=$?
 set -e
 echo "==> attacker finalizado (exit ${INJECTOR_EXIT})." >&2
+echo "$INJECTOR_OUTPUT"
+
+# Registra o resultado do injetor como KPI da run (source=injected/legit já vem
+# do metadado da run, isso aqui só grava taxa de sucesso/status de conexão).
+# Não-fatal: uma falha aqui não deve mascarar o exit code real do injetor.
+echo "==> registrando resultado da injeção em ${API_BASE_URL}/metrics/runs/${RUN_ID}/injection-result ..." >&2
+curl -sS -X POST "${API_BASE_URL}/metrics/runs/${RUN_ID}/injection-result" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H 'Content-Type: application/json' \
+  -d "$INJECTOR_OUTPUT" >/dev/null \
+  || echo "aviso: falha ao registrar KPI de injeção (não-fatal)." >&2
 
 # O trap EXIT roda o stop_run aqui. Propagamos o exit code do injetor para o
 # chamador: 0 = ok (plain rodou, ou secure rejeitado como esperado);

@@ -1,3 +1,6 @@
 # Dependências dos scripts de desenvolvimento (scripts/mock-sensor.py).
 # Escopo separado de attacker/ (Track A/B) e de apps/.
 paho-mqtt>=2.1,<3
+# Teste de scripts/pcap-entropy.py (parser pcap não usa dependências além da
+# stdlib; pytest é só para rodar o teste, já usado em attacker/).
+pytest>=8,<9

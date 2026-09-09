@@ -7,6 +7,8 @@ import { API_BASE_URL } from '@/lib/api';
 
 export type Broker = 'plain' | 'secure';
 
+export type TelemetrySource = 'legit' | 'injected';
+
 export interface TelemetryData {
   sensorId: string;
   temperature: number | null;
@@ -15,6 +17,7 @@ export interface TelemetryData {
   receivedAt: string;
   topic: string;
   raw: string;
+  source: TelemetrySource;
 }
 
 export interface Reading extends TelemetryData {
