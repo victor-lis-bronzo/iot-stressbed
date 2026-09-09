@@ -14,7 +14,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { name: 'Dashboard', href: '/dashboard', icon: Activity },
-  { name: 'Interceptação', icon: ShieldAlert, availableFrom: 'Fase 2' },
+  { name: 'Interceptação', href: '/interceptacao', icon: ShieldAlert },
   { name: 'Console de Ataque', icon: Cpu, availableFrom: 'Fase 4' },
   { name: 'Sensores', href: '/sensors', icon: Settings },
 ];
