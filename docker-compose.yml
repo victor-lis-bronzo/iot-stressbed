@@ -417,6 +417,7 @@ services:
       PORT: 3002
       NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3002}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-dev-only-nextauth-secret}
+      AUTH_TRUST_HOST: ${AUTH_TRUST_HOST:-true}
 
     networks:
       - stressbed-net
