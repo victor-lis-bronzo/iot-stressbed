@@ -4,9 +4,11 @@
 #   1. cp .env.example .env    e troque os valores "change-me"
 #   2. ./scripts/gen-certs.sh  (necessário para o mosquitto-secure)
 #
-# attacker (Track A — injeção) e mock-sensor (publisher legítimo de telemetria
-# simulada) já estão aqui nesta branch. nestjs-api (Fase 1) e nextjs-web
-# (Fase 4) seguem fora desta branch e ainda não estão no compose.
+# attacker (Track A — injeção) já está aqui nesta branch. mock-sensor
+# (publisher de DESENVOLVIMENTO que simula telemetria, ver bloco abaixo)
+# também está aqui, mas é opt-in via profile `dev-tools` — não sobe com um
+# `docker compose up` normal. nestjs-api (Fase 1) e nextjs-web (Fase 4) seguem
+# fora desta branch e ainda não estão no compose.
 #
 # Ver: docs/architecture.md, docs/specs/infra-resource-isolation.md,
 #      docs/adr/0004-cgroups-resource-isolation.md
@@ -229,12 +231,15 @@ services:
     # antes de esgotar os PIDs do host.
     pids_limit: ${ATTACKER_PIDS:-2048}
 
-  # SENSOR MOCK — publisher legítimo de telemetria simulada (temperatura/
-  # umidade) nos dois brokers, sempre ativo desde o `docker compose up` (ao
-  # contrário do attacker, que fica ocioso até um disparo manual). Sem uma run
-  # de injeção/flood ativa, o capture grava esta telemetria como source=legit.
-  # Ver scripts/mock-sensor.py.
+  # SENSOR MOCK — publisher de DESENVOLVIMENTO (scripts/mock-sensor.py) que
+  # simula telemetria legítima nos dois brokers, para não depender do ESP32
+  # físico. NÃO faz parte do caminho científico medido — por isso fica atrás
+  # do profile `dev-tools` e nunca sobe por acidente junto com um experimento
+  # real (Track A/B):
+  #   docker compose --profile dev-tools up -d mock-sensor
+  #   docker compose --profile dev-tools down mock-sensor
   mock-sensor:
+    profiles: ["dev-tools"]
     build:
       context: ./scripts
       dockerfile: Dockerfile.mock-sensor

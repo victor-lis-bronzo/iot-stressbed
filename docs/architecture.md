@@ -123,10 +123,14 @@ o porquê de o resto do backend ser modular pragmático em vez de clean/hexagona
    troca apenas a configuração de conexão (TLS + credenciais) do mesmo
    `MqttSubscriberPort`, sem lógica condicional espalhada.
 
-O container `mock-sensor` (`scripts/mock-sensor.py`) é o publisher legítimo de baseline
-usado em dev/CI no lugar do ESP32: roda continuamente desde o `docker compose up`,
-publicando nos dois brokers, e gera a telemetria gravada como `source=legit` — em
-contraste com `attacker`, que só publica sob demanda durante uma run de injeção.
+O container `mock-sensor` (`scripts/mock-sensor.py`) é uma ferramenta de
+DESENVOLVIMENTO, opt-in via profile `dev-tools` (`docker compose --profile
+dev-tools up mock-sensor`) — não sobe com um `docker compose up` normal. Ele
+existe apenas para substituir o ESP32 físico durante o desenvolvimento,
+publicando telemetria simulada nos dois brokers e gerando registros gravados
+como `source=legit`. Ele NÃO faz parte do caminho científico medido pelo
+testbed — em contraste com `attacker`, que é parte do experimento real
+(Track A/B) e só publica sob demanda durante uma run de injeção.
 
 ## Isolamento de recursos
 
