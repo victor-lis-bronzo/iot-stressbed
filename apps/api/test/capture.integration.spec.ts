@@ -227,3 +227,69 @@ describe('Dual capture integration (plain and secure at the same time)', () => {
     }
   });
 });
+
+describe('Capture coverage KPI on the PLAIN broker', () => {
+  const plainPort = Number(env.MQTT_PLAIN_PORT ?? 1883);
+  const TOPIC = 'sensors/itest-coverage/telemetry';
+  const TOTAL = 100;
+  const REQUIRED = Math.ceil(TOTAL * 0.99);
+
+  const experiments = {
+    resolveCaptureContext: async () => ({ runId: 'run-coverage', source: 'legit' }),
+  } as unknown as ExperimentsService;
+
+  function distinctSeqCount(sink: FakeTelemetrySink): number {
+    const seen = new Set<number>();
+    for (const point of sink.points) {
+      if (point.topic !== TOPIC) {
+        continue;
+      }
+      try {
+        const { seq } = JSON.parse(point.raw) as { seq?: unknown };
+        if (typeof seq === 'number') {
+          seen.add(seq);
+        }
+      } catch {
+        // a non-JSON payload is not one of ours; ignore it
+      }
+    }
+    return seen.size;
+  }
+
+  it('captures at least 99% of the published messages', async () => {
+    const sink = new FakeTelemetrySink();
+    const capture = new CaptureService(
+      { broker: 'plain', topicFilter: 'sensors/itest-coverage/#', enabled: true },
+      new MosquittoSubscriberAdapter({ host: 'localhost', port: plainPort, tls: false }),
+      sink,
+      experiments,
+      new EventEmitter2(),
+    );
+    await capture.onModuleInit();
+
+    const pub = await mqtt.connectAsync(`mqtt://localhost:${plainPort}`);
+    try {
+      for (let seq = 0; seq < TOTAL; seq += 1) {
+        await pub.publishAsync(
+          TOPIC,
+          JSON.stringify({ seq, temperature: 20 + seq / 10, humidity: 50 + seq / 10 }),
+          { qos: 1 },
+        );
+      }
+
+      await waitUntil(() => distinctSeqCount(sink) >= REQUIRED, 15000).catch(() => {
+        // fall through: the coverage assertion below reports the real number
+      });
+
+      const captured = distinctSeqCount(sink);
+      const coverage = (captured / TOTAL) * 100;
+      // both assertions print the observed numbers on failure, so a shortfall
+      // reports the real coverage instead of a bare wait timeout
+      expect(captured).toBeGreaterThanOrEqual(REQUIRED);
+      expect(coverage).toBeGreaterThanOrEqual(99);
+    } finally {
+      await pub.endAsync();
+      await capture.onModuleDestroy();
+    }
+  });
+});
