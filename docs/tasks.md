@@ -225,10 +225,15 @@ maior que isso na prática, quebrar mais). "Pronto quando" é sempre verificáve
   `run_id`, e já foi verificado que continua funcionando com o `nestjs-api`
   desligado (prova o ADR-0003). Ver `docs/test-plans/fase-0.5-infra.md`.
 
-### Provisionar dashboards Grafana
-- Pronto quando: existe pelo menos um dashboard Grafana lendo `broker_metrics`,
-  versionado em `infra/grafana/dashboards/`. (O datasource InfluxDB↔Grafana já foi
-  provisionado e verificado na Fase 0.5 — falta apenas o(s) dashboard(s) em si.)
+### ~~Provisionar dashboards Grafana~~ — feito
+- `infra/grafana/dashboards/broker-metrics.json` provisionado automaticamente pelo
+  provider já existente (confirmado via `GET /api/search` do Grafana, sem nenhuma
+  ação manual na UI). Painéis: CPU (%) e memória (uso vs limite) por broker
+  (dados reais confirmados), rede rx/tx (sintaxe validada; sem dados em Docker
+  Desktop — deve popular no host Linux dos experimentos) e tabela de estado do
+  container (`container_status`/`restart_count`), com variável `run_id` para
+  isolar execuções. Todas as queries usam o datasource `stressbed-influxdb`
+  (Flux) já provisionado na Fase 0.5.
 - Depende de: nenhuma (datasource já pronto).
 - Tamanho: M.
 

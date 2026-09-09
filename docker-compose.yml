@@ -417,6 +417,8 @@ services:
       PORT: 3002
       NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3002}
       NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-dev-only-nextauth-secret}
+      AUTH_TRUST_HOST: ${AUTH_TRUST_HOST:-true}
+      API_INTERNAL_URL: ${API_INTERNAL_URL:-http://nestjs-api:3000}
 
     networks:
       - stressbed-net
