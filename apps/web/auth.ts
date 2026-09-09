@@ -1,6 +1,6 @@
 import NextAuth from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
-import { API_BASE_URL } from '@/lib/api';
+import { INTERNAL_API_BASE_URL } from '@/lib/api';
 
 // Espelha JWT_EXPIRES_IN do backend. O backend nao tem refresh nem revogacao,
 // entao uma sessao mais longa que o token viraria 401 silencioso a cada chamada.
@@ -22,7 +22,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           return null;
         }
 
-        const response = await fetch(`${API_BASE_URL}/auth/login`, {
+        const response = await fetch(`${INTERNAL_API_BASE_URL}/auth/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, password }),
