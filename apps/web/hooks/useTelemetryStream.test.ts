@@ -25,7 +25,7 @@ function createMockSocket() {
   };
 }
 
-function reading(sensorId: string) {
+function reading(sensorId: string, overrides: Record<string, unknown> = {}) {
   return {
     sensorId,
     temperature: 20,
@@ -34,6 +34,8 @@ function reading(sensorId: string) {
     receivedAt: new Date().toISOString(),
     topic: `sensors/${sensorId}`,
     raw: '{}',
+    source: 'legit' as const,
+    ...overrides,
   };
 }
 
@@ -105,6 +107,20 @@ describe('useTelemetryStream', () => {
 
     expect(result.current.readings).toHaveLength(50);
     expect(result.current.readings[0].sensorId).toBe('sensor-59');
+  });
+
+  it('carries the source flag through untouched for injected readings', () => {
+    authenticated('fake-token');
+    const socket = createMockSocket();
+    (io as jest.Mock).mockReturnValue(socket);
+
+    const { result } = renderHook(() => useTelemetryStream('plain'));
+
+    act(() => {
+      socket.emit('telemetry:plain', reading('sensor-forged', { source: 'injected' }));
+    });
+
+    expect(result.current.readings[0].source).toBe('injected');
   });
 
   it('disconnects the socket on unmount', () => {

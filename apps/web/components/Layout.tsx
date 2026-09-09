@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { signOut } from 'next-auth/react';
-import { Activity, ShieldAlert, Cpu, Settings, LogOut, type LucideIcon } from 'lucide-react';
+import { Activity, ShieldAlert, Cpu, Settings, LogOut, Syringe, type LucideIcon } from 'lucide-react';
 
 interface NavItem {
   name: string;
@@ -15,6 +15,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { name: 'Dashboard', href: '/dashboard', icon: Activity },
   { name: 'Interceptação', href: '/interceptacao', icon: ShieldAlert },
+  { name: 'Injeção', href: '/injecao', icon: Syringe },
   { name: 'Console de Ataque', icon: Cpu, availableFrom: 'Fase 4' },
   { name: 'Sensores', href: '/sensors', icon: Settings },
 ];

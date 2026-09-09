@@ -1,38 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useTelemetryStream, type Reading } from '@/hooks/useTelemetryStream';
-
-/**
- * Uma linha de payload interceptado. Monta com opacidade 0 e sobe para 1 no
- * primeiro frame, de modo que apenas o payload recem-chegado (o unico que monta)
- * faz o fade. As linhas anteriores mantem chaves estaveis e nao reanimam.
- */
-function PayloadRow({ item }: { item: Reading }) {
-  const [visible, setVisible] = useState(false);
-
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => setVisible(true));
-    return () => cancelAnimationFrame(frame);
-  }, []);
-
-  return (
-    <div
-      className={`border-b border-border px-3 py-2 transition-opacity duration-500 ${
-        visible ? 'opacity-100' : 'opacity-0'
-      }`}
-    >
-      <div className="flex justify-between gap-2 text-muted">
-        <span>{new Date(item.receivedAt).toLocaleTimeString()}</span>
-        <span className="truncate">{item.topic}</span>
-      </div>
-      {/* Payload exatamente como chegou do broker: sem parse, sem reformatacao. */}
-      <div data-testid="raw-payload" className="mt-1 whitespace-pre-wrap break-all text-primary">
-        {item.raw}
-      </div>
-    </div>
-  );
-}
+import { useTelemetryStream } from '@/hooks/useTelemetryStream';
+import PayloadRow from '@/components/PayloadRow';
 
 /**
  * Evidencia do Track A: qualquer terceiro conectado ao broker plain le toda a
