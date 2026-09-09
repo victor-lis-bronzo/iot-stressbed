@@ -1,17 +1,22 @@
 # IoT StressBed — orquestração do testbed.
 #
-# Antes do primeiro `docker compose up`:
-#   1. cp .env.example .env    e troque os valores "change-me"
-#   2. ./scripts/gen-certs.sh  (necessário para o mosquitto-secure)
+# BOOTSTRAP ÚNICO (ADR-0008): `docker compose up` sozinho já sobe tudo — infra,
+# certificados mTLS (serviço `certs`, gerado automaticamente e de forma
+# idempotente a partir de scripts/gen-certs.sh) e as aplicações `nestjs-api`/
+# `nextjs-web`. Nenhum passo manual no host é necessário. Copiar `.env` a
+# partir de `.env.example` continua funcionando, mas agora é OPCIONAL — só
+# necessário para sobrescrever os defaults de desenvolvimento/pesquisa abaixo.
+# ESSES DEFAULTS SÃO CREDENCIAIS DE LABORATÓRIO: não use em deploy exposto.
 #
 # attacker (Track A — injeção) já está aqui nesta branch. mock-sensor
 # (publisher de DESENVOLVIMENTO que simula telemetria, ver bloco abaixo)
 # também está aqui, mas é opt-in via profile `dev-tools` — não sobe com um
-# `docker compose up` normal. nestjs-api (Fase 1) e nextjs-web (Fase 4) seguem
-# fora desta branch e ainda não estão no compose.
+# `docker compose up` normal. O disparo do attacker (injector.py) continua
+# SEMPRE manual, por design (ADR-0006) — não é afetado pelo bootstrap único.
 #
 # Ver: docs/architecture.md, docs/specs/infra-resource-isolation.md,
-#      docs/adr/0004-cgroups-resource-isolation.md
+#      docs/adr/0004-cgroups-resource-isolation.md,
+#      docs/adr/0008-single-command-bootstrap.md
 
 name: ${COMPOSE_PROJECT_NAME:-stressbed}
 
@@ -23,6 +28,31 @@ networks:
     driver: bridge
 
 services:
+
+  # CERTIFICADOS mTLS (ADR-0008): roda scripts/gen-certs.sh dentro de um
+  # container antes do mosquitto-secure subir, eliminando o passo manual do
+  # `./scripts/gen-certs.sh` no host. Idempotente — o próprio script não
+  # regera nada se os arquivos já existirem, então rodar em todo `up` é
+  # seguro e barato. Serviço one-shot: sobe, gera (ou confirma) os certs e sai
+  # com 0; mosquitto-secure só inicia depois disso via
+  # `condition: service_completed_successfully`.
+  certs:
+    image: alpine:3.20
+    container_name: certs
+    command: ["sh", "-c", "apk add --no-cache bash openssl >/dev/null && bash /scripts/gen-certs.sh"]
+    environment:
+      CERT_DIR: /certs
+    volumes:
+      - ./scripts/gen-certs.sh:/scripts/gen-certs.sh:ro
+      - ./infra/mosquitto/secure/certs:/certs
+    networks:
+      - stressbed-net
+    restart: "no"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   # BROKER ALVO, aberto de propósito: é a vulnerabilidade que a IC demonstra.
   # Ver infra/mosquitto/plain/mosquitto.conf.
@@ -101,14 +131,18 @@ services:
     command: ["/usr/sbin/mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
 
     environment:
-      MQTT_SECURE_USERNAME: ${MQTT_SECURE_USERNAME:?defina MQTT_SECURE_USERNAME no .env}
-      MQTT_SECURE_PASSWORD: ${MQTT_SECURE_PASSWORD:?defina MQTT_SECURE_PASSWORD no .env}
+      MQTT_SECURE_USERNAME: ${MQTT_SECURE_USERNAME:-stressbed}
+      MQTT_SECURE_PASSWORD: ${MQTT_SECURE_PASSWORD:-stressbed}
 
     volumes:
       - ./infra/mosquitto/secure/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - ./infra/mosquitto/secure/acl.template:/mosquitto/config/acl.template:ro
       - ./infra/mosquitto/secure/docker-entrypoint.sh:/entrypoint/docker-entrypoint.sh:ro
       - ./infra/mosquitto/secure/certs:/mosquitto/certs:ro
+
+    depends_on:
+      certs:
+        condition: service_completed_successfully
 
     networks:
       - stressbed-net
@@ -255,8 +289,8 @@ services:
       MQTT_PLAIN_PORT: "1883"
       MQTT_SECURE_HOST: mosquitto-secure
       MQTT_SECURE_PORT: "8883"
-      MQTT_SECURE_USERNAME: ${MQTT_SECURE_USERNAME:?defina MQTT_SECURE_USERNAME no .env}
-      MQTT_SECURE_PASSWORD: ${MQTT_SECURE_PASSWORD:?defina MQTT_SECURE_PASSWORD no .env}
+      MQTT_SECURE_USERNAME: ${MQTT_SECURE_USERNAME:-stressbed}
+      MQTT_SECURE_PASSWORD: ${MQTT_SECURE_PASSWORD:-stressbed}
       MOCK_SENSOR_CERTS_DIR: /certs
 
     volumes:
@@ -278,6 +312,127 @@ services:
     cpuset: ${STACK_CPUSET:-0,1}
     mem_limit: 128m
 
+  # BACKEND NestJS: auth, sensors, capture, experiments, realtime. Dockerizado
+  # (ADR-0008) para caber no bootstrap único — antes rodava só via `npm run
+  # start:dev` no host. Certificado de cliente mTLS vem do mesmo volume
+  # gerado pelo serviço `certs`.
+  nestjs-api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: nestjs-api
+    hostname: nestjs-api
+
+    restart: unless-stopped
+
+    ports:
+      - "${API_PORT:-3000}:3000"
+
+    environment:
+      NODE_ENV: production
+      API_PORT: 3000
+      JWT_SECRET: ${JWT_SECRET:-dev-only-jwt-secret}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-12h}
+      AUTH_ADMIN_EMAIL: ${AUTH_ADMIN_EMAIL:-admin@stressbed.com}
+      AUTH_ADMIN_PASSWORD: ${AUTH_ADMIN_PASSWORD:-@admin123}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-stressbed}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stressbed}
+      POSTGRES_DB: ${POSTGRES_DB:-stressbed}
+      INFLUXDB_URL: http://influxdb:8086
+      CAPTURE_TOPIC: "#"
+      CAPTURE_ENABLED: "true"
+      CAPTURE_PLAIN_MQTT_HOST: mosquitto-plain
+      CAPTURE_PLAIN_MQTT_PORT: 1883
+      CAPTURE_PLAIN_MQTT_TLS: "false"
+      CAPTURE_SECURE_MQTT_HOST: mosquitto-secure
+      CAPTURE_SECURE_MQTT_PORT: 8883
+      CAPTURE_SECURE_MQTT_TLS: "true"
+      CAPTURE_SECURE_MQTT_USERNAME: ${MQTT_SECURE_USERNAME:-stressbed}
+      CAPTURE_SECURE_MQTT_PASSWORD: ${MQTT_SECURE_PASSWORD:-stressbed}
+      CAPTURE_SECURE_MQTT_CA_PATH: /certs/ca.crt
+      CAPTURE_SECURE_MQTT_CERT_PATH: /certs/client-capture.crt
+      CAPTURE_SECURE_MQTT_KEY_PATH: /certs/client-capture.key
+      CAPTURE_SECURE_MQTT_REJECT_UNAUTHORIZED: "true"
+
+    volumes:
+      - ./infra/mosquitto/secure/certs:/certs:ro
+
+    networks:
+      - stressbed-net
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # Núcleos reservados: mesma lógica de postgres/influxdb/grafana/telegraf —
+    # a aplicação não compete com broker/atacante pelos mesmos núcleos
+    # (ADR-0004).
+    cpuset: ${STACK_CPUSET:-0,1}
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+      certs:
+        condition: service_completed_successfully
+      mosquitto-plain:
+        condition: service_started
+      mosquitto-secure:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # FRONTEND Next.js: dashboard, login, telas de interceptação/injeção.
+  # Dockerizado (ADR-0008) — antes rodava só via `npm run dev` no host.
+  # NEXT_PUBLIC_API_URL vai como build arg porque o Next embute variáveis
+  # NEXT_PUBLIC_* no bundle client-side em build time: precisa ser a URL que o
+  # NAVEGADOR do usuário alcança (porta publicada no host), não o hostname
+  # interno da rede Docker.
+  nextjs-web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3000}
+    container_name: nextjs-web
+    hostname: nextjs-web
+
+    restart: unless-stopped
+
+    ports:
+      - "${WEB_PORT:-3002}:3002"
+
+    environment:
+      NODE_ENV: production
+      PORT: 3002
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3002}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-dev-only-nextauth-secret}
+
+    networks:
+      - stressbed-net
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    cpuset: ${STACK_CPUSET:-0,1}
+
+    depends_on:
+      nestjs-api:
+        condition: service_healthy
+
   # Estado da aplicação (usuários, sensores, metadados de run). NUNCA
   # telemetria: série temporal vive no InfluxDB (ADR-0001).
   postgres:
@@ -293,9 +448,9 @@ services:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
 
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:?defina POSTGRES_USER no .env}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
-      POSTGRES_DB: ${POSTGRES_DB:?defina POSTGRES_DB no .env}
+      POSTGRES_USER: ${POSTGRES_USER:-stressbed}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stressbed}
+      POSTGRES_DB: ${POSTGRES_DB:-stressbed}
 
     volumes:
       - postgres-data:/var/lib/postgresql/data
@@ -329,11 +484,11 @@ services:
     environment:
       # Bootstrap automático na primeira subida (cria org, bucket e token).
       DOCKER_INFLUXDB_INIT_MODE: setup
-      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUXDB_ADMIN_USER:?defina INFLUXDB_ADMIN_USER no .env}
-      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_ADMIN_PASSWORD:?defina INFLUXDB_ADMIN_PASSWORD no .env}
-      DOCKER_INFLUXDB_INIT_ORG: ${INFLUXDB_ORG:?defina INFLUXDB_ORG no .env}
-      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUXDB_BUCKET:?defina INFLUXDB_BUCKET no .env}
-      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_TOKEN:?defina INFLUXDB_TOKEN no .env}
+      DOCKER_INFLUXDB_INIT_USERNAME: ${INFLUXDB_ADMIN_USER:-admin}
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${INFLUXDB_ADMIN_PASSWORD:-admin1234}
+      DOCKER_INFLUXDB_INIT_ORG: ${INFLUXDB_ORG:-stressbed}
+      DOCKER_INFLUXDB_INIT_BUCKET: ${INFLUXDB_BUCKET:-stressbed}
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${INFLUXDB_TOKEN:-dev-only-influx-token}
       DOCKER_INFLUXDB_INIT_RETENTION: ${INFLUXDB_RETENTION:-0s}
 
     volumes:
@@ -364,17 +519,17 @@ services:
       - "127.0.0.1:${GRAFANA_PORT:-3001}:3000"
 
     environment:
-      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?defina GRAFANA_ADMIN_USER no .env}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?defina GRAFANA_ADMIN_PASSWORD no .env}
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       # Nada do painel é público (ADR-0005).
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       # Consumidas pelo datasource provisionado (infra/grafana/provisioning).
-      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN}
-      INFLUXDB_ORG: ${INFLUXDB_ORG}
-      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET}
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN:-dev-only-influx-token}
+      INFLUXDB_ORG: ${INFLUXDB_ORG:-stressbed}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-stressbed}
 
     volumes:
       - grafana-data:/var/lib/grafana
@@ -415,9 +570,9 @@ services:
     environment:
       TELEGRAF_INTERVAL: ${TELEGRAF_INTERVAL:-5s}
       TELEGRAF_DOCKER_ENDPOINT: unix:///var/run/docker.sock
-      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN:?defina INFLUXDB_TOKEN no .env}
-      INFLUXDB_ORG: ${INFLUXDB_ORG:?defina INFLUXDB_ORG no .env}
-      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:?defina INFLUXDB_BUCKET no .env}
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN:-dev-only-influx-token}
+      INFLUXDB_ORG: ${INFLUXDB_ORG:-stressbed}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-stressbed}
       # Tag da run ativa; "none" fora de um experimento.
       RUN_ID: ${RUN_ID:-none}
 
