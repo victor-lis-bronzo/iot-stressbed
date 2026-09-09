@@ -1,8 +1,10 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { IsNull, Repository } from 'typeorm';
 import { StartRunDto } from './dto/start-run.dto';
 import { ExperimentRun } from './entities/experiment-run.entity';
+import { RUN_STOPPED } from './experiments.tokens';
 
 export interface CaptureContext {
   runId: string | null;
@@ -14,6 +16,7 @@ export class ExperimentsService {
   constructor(
     @InjectRepository(ExperimentRun)
     private readonly runs: Repository<ExperimentRun>,
+    private readonly events: EventEmitter2,
   ) {}
 
   async start(dto: StartRunDto): Promise<ExperimentRun> {
@@ -56,7 +59,9 @@ export class ExperimentsService {
       return null;
     }
     active.endedAt = new Date();
-    return this.runs.save(active);
+    const stopped = await this.runs.save(active);
+    this.events.emit(RUN_STOPPED, stopped.id);
+    return stopped;
   }
 
   getActiveRun(): Promise<ExperimentRun | null> {
@@ -64,6 +69,10 @@ export class ExperimentsService {
       where: { endedAt: IsNull() },
       order: { startedAt: 'DESC' },
     });
+  }
+
+  findById(id: string): Promise<ExperimentRun | null> {
+    return this.runs.findOne({ where: { id } });
   }
 
   async resolveCaptureContext(): Promise<CaptureContext> {
