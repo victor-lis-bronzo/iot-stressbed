@@ -16,7 +16,7 @@
         "type": "query",
         "datasource": { "type": "influxdb", "uid": "stressbed-influxdb" },
         "query": "import \"influxdata/influxdb/schema\"\nschema.tagValues(bucket: v.defaultBucket, tag: \"run_id\")",
-        "refresh": 2,
+        "refresh": 1,
         "includeAll": true,
         "multi": true,
         "current": { "text": "All", "value": "$__all" },
