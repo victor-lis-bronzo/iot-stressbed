@@ -17,7 +17,17 @@ from pathlib import Path
 import paho.mqtt.client as mqtt
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-CERTS_DIR = REPO_ROOT / "infra" / "mosquitto" / "secure" / "certs"
+# CERTS_DIR precisa ser configurável porque o script roda em dois contextos com
+# layouts de filesystem diferentes: direto do host (dev local), onde o cálculo
+# por REPO_ROOT acha os certs em infra/...; e dentro do container mock-sensor,
+# onde /app/mock-sensor.py torna esse cálculo inválido e os certs chegam por
+# outro caminho (MOCK_SENSOR_CERTS_DIR, ver docker-compose.yml).
+CERTS_DIR = Path(
+    os.environ.get(
+        "MOCK_SENSOR_CERTS_DIR",
+        str(REPO_ROOT / "infra" / "mosquitto" / "secure" / "certs"),
+    )
+)
 
 TEMPERATURE_RANGE = (22.0, 26.0)
 HUMIDITY_RANGE = (40.0, 60.0)

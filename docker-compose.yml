@@ -4,8 +4,11 @@
 #   1. cp .env.example .env    e troque os valores "change-me"
 #   2. ./scripts/gen-certs.sh  (necessário para o mosquitto-secure)
 #
-# nestjs-api (Fase 1), nextjs-web (Fase 4) e attacker (Fase 3) ainda não estão
-# aqui; os limites ATTACKER_* já ficam reservados no .env.example.
+# attacker (Track A — injeção) já está aqui nesta branch. mock-sensor
+# (publisher de DESENVOLVIMENTO que simula telemetria, ver bloco abaixo)
+# também está aqui, mas é opt-in via profile `dev-tools` — não sobe com um
+# `docker compose up` normal. nestjs-api (Fase 1) e nextjs-web (Fase 4) seguem
+# fora desta branch e ainda não estão no compose.
 #
 # Ver: docs/architecture.md, docs/specs/infra-resource-isolation.md,
 #      docs/adr/0004-cgroups-resource-isolation.md
@@ -144,6 +147,136 @@ services:
       timeout: 8s
       retries: 3
       start_period: 5s
+
+  # ATACANTE — Track A (injeção/spoofing). Cliente MQTT que forja leituras no
+  # tópico do sensor legítimo: aceito no broker plain, rejeitado no secure (mTLS).
+  # Ver attacker/README.md e attacker/python/injector.py.
+  attacker:
+    build:
+      context: ./attacker
+    container_name: attacker
+    hostname: attacker
+
+    # Sem restart: se o injetor sair (inclusive exit 1 no secure, que é o achado
+    # esperado), o container não deve reviver sozinho e mascarar o resultado.
+    restart: "no"
+
+    # Sem `ports`: é sempre cliente MQTT, nunca servidor — não expõe nada.
+    # Sem `healthcheck`: não há endpoint; o container fica ocioso por design.
+
+    # Rede: dentro da stressbed-net os brokers são alcançáveis pelos hostnames
+    # dos serviços (mosquitto-plain/mosquitto-secure) nas portas INTERNAS
+    # (1883/8883), não por localhost nem pelas portas publicadas no host.
+    # ATTACKER_CA_PATH aponta para o ca.crt montado via volume abaixo (o cálculo
+    # por REPO_ROOT em injector.py não resolve dentro do container).
+    environment:
+      MQTT_PLAIN_HOST: mosquitto-plain
+      MQTT_PLAIN_PORT: "1883"
+      MQTT_SECURE_HOST: mosquitto-secure
+      MQTT_SECURE_PORT: "8883"
+      ATTACKER_CA_PATH: /certs/ca.crt
+
+    # Opção B (volume) em vez de COPY no Dockerfile: os certs são regenerados por
+    # ./scripts/gen-certs.sh e um bind mount reflete a regeneração sem rebuild da
+    # imagem; também mantém o build context em ./attacker, sem side-effect em
+    # quem assume esse contexto. Só o ca.crt é necessário — o atacante nunca
+    # apresenta certificado de cliente (por isso montamos o diretório :ro).
+    volumes:
+      - ./infra/mosquitto/secure/certs:/certs:ro
+
+    # depends_on leve (sem condition): só ordena a subida para que um
+    # `docker compose up attacker` isolado suba os brokers junto, evitando um
+    # "Connection refused" sem pista. O disparo continua sempre manual (ver CMD).
+    depends_on:
+      - mosquitto-plain
+      - mosquitto-secure
+
+    # O CMD da imagem é `sleep infinity`: o container fica ocioso até ser
+    # disparado sob demanda via
+    #   docker compose exec attacker python python/injector.py --target ...
+    # O disparo é SEMPRE manual, NUNCA automático no `docker compose up`: uma
+    # publicação fora de uma run com attackType=injection seria gravada pelo
+    # capture como source=legit, corrompendo o KPI de taxa de sucesso de injeção
+    # e violando a run única ativa do ADR-0006. A orquestração correta
+    # (login -> start run -> disparo -> stop run) vive em scripts/run-experiment.sh.
+
+    networks:
+      - stressbed-net
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    # ISOLAMENTO DE RECURSOS (ADR-0004): o atacante *gera* carga (múltiplas
+    # conexões/threads simultâneas) em vez de só recebê-la, por isso recebe mais
+    # folga que cada broker — mas ainda contida, para que o próprio ataque nunca
+    # trave o host. Roteiro completo em docs/specs/attacker-resource-limits.md.
+    #
+    # O cpuset (ATTACKER_CPUSET) é disjunto dos núcleos dos brokers e da stack de
+    # observação: é essa exclusão que mantém Grafana/InfluxDB coletando enquanto
+    # o ataque satura o broker-alvo.
+    cpuset: ${ATTACKER_CPUSET:-4,5}
+    cpus: ${ATTACKER_CPUS:-2.0}
+
+    # memswap_limit IGUAL a mem_limit = swap zero: o OOM do próprio atacante fica
+    # determinístico, mesmo raciocínio dos brokers. NUNCA aumente MEMSWAP acima
+    # de MEMORY.
+    mem_limit: ${ATTACKER_MEMORY:-512m}
+    memswap_limit: ${ATTACKER_MEMSWAP:-512m}
+
+    # PIDs alto o bastante para o ataque atingir o broker antes que o próprio
+    # limite o interrompa; baixo o bastante para conter uma explosão de tarefas
+    # antes de esgotar os PIDs do host.
+    pids_limit: ${ATTACKER_PIDS:-2048}
+
+  # SENSOR MOCK — publisher de DESENVOLVIMENTO (scripts/mock-sensor.py) que
+  # simula telemetria legítima nos dois brokers, para não depender do ESP32
+  # físico. NÃO faz parte do caminho científico medido — por isso fica atrás
+  # do profile `dev-tools` e nunca sobe por acidente junto com um experimento
+  # real (Track A/B):
+  #   docker compose --profile dev-tools up -d mock-sensor
+  #   docker compose --profile dev-tools down mock-sensor
+  mock-sensor:
+    profiles: ["dev-tools"]
+    build:
+      context: ./scripts
+      dockerfile: Dockerfile.mock-sensor
+    container_name: mock-sensor
+    hostname: mock-sensor
+
+    restart: "no"
+
+    environment:
+      MOCK_SENSOR_ID: ${MOCK_SENSOR_ID:-sensor-mock-01}
+      MOCK_SENSOR_INTERVAL: ${MOCK_SENSOR_INTERVAL:-2}
+      MQTT_PLAIN_HOST: mosquitto-plain
+      MQTT_PLAIN_PORT: "1883"
+      MQTT_SECURE_HOST: mosquitto-secure
+      MQTT_SECURE_PORT: "8883"
+      MQTT_SECURE_USERNAME: ${MQTT_SECURE_USERNAME:?defina MQTT_SECURE_USERNAME no .env}
+      MQTT_SECURE_PASSWORD: ${MQTT_SECURE_PASSWORD:?defina MQTT_SECURE_PASSWORD no .env}
+      MOCK_SENSOR_CERTS_DIR: /certs
+
+    volumes:
+      - ./infra/mosquitto/secure/certs:/certs:ro
+
+    depends_on:
+      - mosquitto-plain
+      - mosquitto-secure
+
+    networks:
+      - stressbed-net
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+    cpuset: ${STACK_CPUSET:-0,1}
+    mem_limit: 128m
 
   # Estado da aplicação (usuários, sensores, metadados de run). NUNCA
   # telemetria: série temporal vive no InfluxDB (ADR-0001).
