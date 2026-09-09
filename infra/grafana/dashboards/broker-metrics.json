@@ -1,0 +1,116 @@
+{
+  "uid": "stressbed-broker-metrics",
+  "title": "Broker Metrics (Track A/B — telegraf)",
+  "tags": ["iot-stressbed", "track-a", "track-b", "telegraf"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "refresh": "10s",
+  "time": { "from": "now-15m", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "run_id",
+        "label": "Run ID",
+        "type": "query",
+        "datasource": { "type": "influxdb", "uid": "stressbed-influxdb" },
+        "query": "import \"influxdata/influxdb/schema\"\nschema.tagValues(bucket: v.defaultBucket, tag: \"run_id\")",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": { "text": "All", "value": "$__all" },
+        "sort": 3
+      }
+    ]
+  },
+  "annotations": {
+    "list": [
+      {
+        "name": "Annotations & Alerts",
+        "builtIn": 1,
+        "type": "dashboard",
+        "enable": true,
+        "hide": true
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 100,
+      "type": "text",
+      "title": "Fonte dos dados",
+      "gridPos": { "h": 3, "w": 24, "x": 0, "y": 0 },
+      "options": {
+        "mode": "markdown",
+        "content": "`broker_metrics` é gravado pelo **telegraf** (`inputs.docker`), lendo os cgroups direto do socket do Docker — caminho **independente do nestjs-api** (ADR-0003). Esta série deve continuar sendo atualizada mesmo com a API fora do ar durante um ataque de Track B. Filtre por `run_id` para isolar uma execução de experimento.\n\n_Rede/blkio: em ambientes Docker Desktop (Windows/Mac) esses contadores por container podem vir vazios; em host Linux nativo (ambiente dos experimentos) devem popular normalmente._"
+      }
+    },
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "CPU (%) por broker",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 3 },
+      "datasource": { "type": "influxdb", "uid": "stressbed-influxdb" },
+      "fieldConfig": {
+        "defaults": { "unit": "percent", "min": 0 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"broker_metrics\" and r._field == \"usage_percent\" and r.cpu == \"cpu-total\")\n  |> filter(fn: (r) => r.run_id =~ /^${run_id:regex}$/)\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_value\", \"broker\"])\n  |> group(columns: [\"broker\"])"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Memória (uso vs limite) por broker",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 3 },
+      "datasource": { "type": "influxdb", "uid": "stressbed-influxdb" },
+      "fieldConfig": {
+        "defaults": { "unit": "bytes", "min": 0 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"broker_metrics\" and (r._field == \"usage\" or r._field == \"limit\"))\n  |> filter(fn: (r) => r.run_id =~ /^${run_id:regex}$/)\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_value\", \"_field\", \"broker\"])\n  |> group(columns: [\"broker\", \"_field\"])"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Rede (rx/tx bytes/s) por broker",
+      "description": "Requer host Linux com stats de rede por container populados; em Docker Desktop pode aparecer sem dados.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 11 },
+      "datasource": { "type": "influxdb", "uid": "stressbed-influxdb" },
+      "fieldConfig": {
+        "defaults": { "unit": "Bps", "min": 0 },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"broker_metrics\" and (r._field == \"rx_bytes\" or r._field == \"tx_bytes\"))\n  |> filter(fn: (r) => r.run_id =~ /^${run_id:regex}$/)\n  |> derivative(unit: 1s, nonNegative: true, columns: [\"_value\"])\n  |> keep(columns: [\"_time\", \"_value\", \"_field\", \"broker\"])\n  |> group(columns: [\"broker\", \"_field\"])"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Estado do container (último ponto)",
+      "description": "Transição para exited/restarting durante um ataque é o dado científico de tempo-até-crash/recuperação (Track B).",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 11 },
+      "datasource": { "type": "influxdb", "uid": "stressbed-influxdb" },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"broker_metrics\" and r._field == \"restart_count\")\n  |> filter(fn: (r) => r.run_id =~ /^${run_id:regex}$/)\n  |> last()\n  |> keep(columns: [\"broker\", \"container_status\", \"container_name\", \"run_id\", \"_value\"])\n  |> rename(columns: {_value: \"restart_count\"})"
+        }
+      ]
+    }
+  ]
+}
