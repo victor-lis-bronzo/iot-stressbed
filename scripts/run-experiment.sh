@@ -178,19 +178,17 @@ set -e
 echo "==> attacker finalizado (exit ${ATTACK_EXIT})." >&2
 echo "$ATTACK_OUTPUT"
 
-# Registro de KPI via /metrics: hoje só existe endpoint para o resultado de
-# injeção (Track A). Os 3 ataques de Track B ainda não têm endpoint/coluna
-# equivalente (fica para a tarefa "Medir KPIs do Track B" do roadmap) — para
-# essas tracks o JSON acima já foi ecoado em stdout e é só isso mesmo por ora.
-if [[ "$TRACK" == "injection" ]]; then
-  # Não-fatal: uma falha aqui não deve mascarar o exit code real do ataque.
-  echo "==> registrando resultado da injeção em ${API_BASE_URL}/metrics/runs/${RUN_ID}/injection-result ..." >&2
-  curl -sS -X POST "${API_BASE_URL}/metrics/runs/${RUN_ID}/injection-result" \
-    -H "Authorization: Bearer ${TOKEN}" \
-    -H 'Content-Type: application/json' \
-    -d "$ATTACK_OUTPUT" >/dev/null \
-    || echo "aviso: falha ao registrar KPI de injeção (não-fatal)." >&2
-fi
+# Registro de KPI via /metrics: as 4 tracks (injection + as 3 de Track B) têm
+# endpoint equivalente, sempre nomeado "${TRACK}-result" (injection-result,
+# connection-flood-result, message-flood-result, malformed-payload-result),
+# então uma única chamada incondicional cobre todas. Não-fatal: uma falha
+# aqui não deve mascarar o exit code real do ataque.
+echo "==> registrando resultado de ${TRACK} em ${API_BASE_URL}/metrics/runs/${RUN_ID}/${TRACK}-result ..." >&2
+curl -sS -X POST "${API_BASE_URL}/metrics/runs/${RUN_ID}/${TRACK}-result" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H 'Content-Type: application/json' \
+  -d "$ATTACK_OUTPUT" >/dev/null \
+  || echo "aviso: falha ao registrar KPI de ${TRACK} (não-fatal)." >&2
 
 # O trap EXIT roda o stop_run aqui. Propagamos o exit code do ataque para o
 # chamador sem reinterpretar: para `injection`, 0 = ok (plain rodou, ou secure
