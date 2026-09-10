@@ -16,7 +16,7 @@ const navItems: NavItem[] = [
   { name: 'Dashboard', href: '/dashboard', icon: Activity },
   { name: 'Interceptação', href: '/interceptacao', icon: ShieldAlert },
   { name: 'Injeção', href: '/injecao', icon: Syringe },
-  { name: 'Console de Ataque', icon: Cpu, availableFrom: 'Fase 4' },
+  { name: 'Console de Ataque', href: '/ataques', icon: Cpu },
   { name: 'Sensores', href: '/sensors', icon: Settings },
 ];
 
