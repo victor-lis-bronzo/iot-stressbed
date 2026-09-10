@@ -14,6 +14,10 @@ export type PayloadReadabilityClassification =
   | 'legivel'
   | 'ciphertext'
   | 'inconclusivo';
+export type TrackBAttackType =
+  | 'connection-flood'
+  | 'message-flood'
+  | 'malformed-payload';
 
 @Entity('run_kpis')
 export class RunKpi {
@@ -80,6 +84,45 @@ export class RunKpi {
     default: null,
   })
   timeToFirstCaptureMs: number | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    enum: ['connection-flood', 'message-flood', 'malformed-payload'],
+  })
+  @Column({
+    name: 'track_b_attack_type',
+    type: 'varchar',
+    nullable: true,
+    default: null,
+  })
+  trackBAttackType: TrackBAttackType | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @Column({
+    name: 'track_b_result',
+    type: 'jsonb',
+    nullable: true,
+    default: null,
+  })
+  trackBResult: Record<string, unknown> | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @Column({
+    name: 'attack_started_at',
+    type: 'timestamptz',
+    nullable: true,
+    default: null,
+  })
+  attackStartedAt: Date | null;
+
+  @ApiPropertyOptional({ nullable: true })
+  @Column({
+    name: 'attack_finished_at',
+    type: 'timestamptz',
+    nullable: true,
+    default: null,
+  })
+  attackFinishedAt: Date | null;
 
   @ApiProperty()
   @CreateDateColumn({ name: 'calculated_at' })

@@ -14,7 +14,10 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { ConnectionFloodResultDto } from './dto/connection-flood-result.dto';
 import { InjectionResultDto } from './dto/injection-result.dto';
+import { MalformedPayloadResultDto } from './dto/malformed-payload-result.dto';
+import { MessageFloodResultDto } from './dto/message-flood-result.dto';
 import { PayloadReadabilityDto } from './dto/payload-readability.dto';
 import { RunKpi } from './entities/run-kpi.entity';
 import { MetricsService } from './metrics.service';
@@ -50,6 +53,44 @@ export class MetricsController {
     @Body() dto: PayloadReadabilityDto,
   ) {
     return this.metrics.recordPayloadReadability(runId, dto);
+  }
+
+  @Post(':runId/connection-flood-result')
+  @ApiOperation({
+    summary:
+      'Registra o resultado do connection_flood.py (Track B) para uma run',
+  })
+  @ApiResponse({ status: 201, type: RunKpi })
+  recordConnectionFloodResult(
+    @Param('runId', ParseUUIDPipe) runId: string,
+    @Body() dto: ConnectionFloodResultDto,
+  ) {
+    return this.metrics.recordConnectionFloodResult(runId, dto);
+  }
+
+  @Post(':runId/message-flood-result')
+  @ApiOperation({
+    summary: 'Registra o resultado do message_flood.py (Track B) para uma run',
+  })
+  @ApiResponse({ status: 201, type: RunKpi })
+  recordMessageFloodResult(
+    @Param('runId', ParseUUIDPipe) runId: string,
+    @Body() dto: MessageFloodResultDto,
+  ) {
+    return this.metrics.recordMessageFloodResult(runId, dto);
+  }
+
+  @Post(':runId/malformed-payload-result')
+  @ApiOperation({
+    summary:
+      'Registra o resultado do malformed_payload.py (Track B) para uma run',
+  })
+  @ApiResponse({ status: 201, type: RunKpi })
+  recordMalformedPayloadResult(
+    @Param('runId', ParseUUIDPipe) runId: string,
+    @Body() dto: MalformedPayloadResultDto,
+  ) {
+    return this.metrics.recordMalformedPayloadResult(runId, dto);
   }
 
   @Get(':runId')

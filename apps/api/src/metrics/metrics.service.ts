@@ -4,9 +4,12 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { Repository } from 'typeorm';
 import { ExperimentsService } from '../experiments/experiments.service';
 import { RUN_STOPPED } from '../experiments/experiments.tokens';
+import { ConnectionFloodResultDto } from './dto/connection-flood-result.dto';
 import { InjectionResultDto } from './dto/injection-result.dto';
+import { MalformedPayloadResultDto } from './dto/malformed-payload-result.dto';
+import { MessageFloodResultDto } from './dto/message-flood-result.dto';
 import { PayloadReadabilityDto } from './dto/payload-readability.dto';
-import { RunKpi } from './entities/run-kpi.entity';
+import { RunKpi, TrackBAttackType } from './entities/run-kpi.entity';
 import { TELEMETRY_QUERY } from './metrics.tokens';
 import { TelemetryQueryPort } from './ports/telemetry-query.port';
 
@@ -50,6 +53,39 @@ export class MetricsService {
     kpi.payloadReadabilityClassification = dto.classification;
     kpi.calculatedAt = new Date();
     return this.kpis.save(kpi);
+  }
+
+  private async recordTrackBResult<
+    T extends { started_at: string; finished_at: string },
+  >(runId: string, attackType: TrackBAttackType, dto: T): Promise<RunKpi> {
+    const kpi = await this.findOrCreate(runId);
+    kpi.trackBAttackType = attackType;
+    kpi.trackBResult = dto as unknown as Record<string, unknown>;
+    kpi.attackStartedAt = new Date(dto.started_at);
+    kpi.attackFinishedAt = new Date(dto.finished_at);
+    kpi.calculatedAt = new Date();
+    return this.kpis.save(kpi);
+  }
+
+  async recordConnectionFloodResult(
+    runId: string,
+    dto: ConnectionFloodResultDto,
+  ): Promise<RunKpi> {
+    return this.recordTrackBResult(runId, 'connection-flood', dto);
+  }
+
+  async recordMessageFloodResult(
+    runId: string,
+    dto: MessageFloodResultDto,
+  ): Promise<RunKpi> {
+    return this.recordTrackBResult(runId, 'message-flood', dto);
+  }
+
+  async recordMalformedPayloadResult(
+    runId: string,
+    dto: MalformedPayloadResultDto,
+  ): Promise<RunKpi> {
+    return this.recordTrackBResult(runId, 'malformed-payload', dto);
   }
 
   /**

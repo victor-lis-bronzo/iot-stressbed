@@ -65,6 +65,157 @@ describe('MetricsService', () => {
     });
   });
 
+  describe('recordConnectionFloodResult', () => {
+    it('persists the raw jsonb payload and parses started/finished timestamps', async () => {
+      const dto = {
+        target: 'plain' as const,
+        host: 'mosquitto',
+        port: 1883,
+        connections_attempted: 200,
+        connections_established: 150,
+        connections_rejected: 50,
+        success_rate: 0.75,
+        errors: ['conexão não estabelecida: timeout'],
+        started_at: '2026-01-01T00:00:00.000Z',
+        finished_at: '2026-01-01T00:00:05.000Z',
+      };
+
+      const kpi = await service.recordConnectionFloodResult('run-1', dto);
+
+      expect(kpi.trackBAttackType).toBe('connection-flood');
+      expect(kpi.trackBResult).toEqual(dto);
+      expect(kpi.attackStartedAt).toEqual(new Date('2026-01-01T00:00:00.000Z'));
+      expect(kpi.attackFinishedAt).toEqual(new Date('2026-01-01T00:00:05.000Z'));
+      expect(kpis.save).toHaveBeenCalledTimes(1);
+    });
+
+    it('persists a fully rejected flood (no connections established)', async () => {
+      const dto = {
+        target: 'secure' as const,
+        host: 'mosquitto',
+        port: 8883,
+        connections_attempted: 10,
+        connections_established: 0,
+        connections_rejected: 10,
+        success_rate: 0,
+        errors: ['conexão não estabelecida: handshake abortado (sem CONNACK)'],
+        started_at: '2026-01-01T00:00:00.000Z',
+        finished_at: '2026-01-01T00:00:01.000Z',
+      };
+
+      const kpi = await service.recordConnectionFloodResult('run-2', dto);
+
+      expect(kpi.trackBAttackType).toBe('connection-flood');
+      expect(kpi.trackBResult).toEqual(dto);
+    });
+  });
+
+  describe('recordMessageFloodResult', () => {
+    it('persists the raw jsonb payload and parses started/finished timestamps', async () => {
+      const dto = {
+        target: 'plain' as const,
+        topic: 'sensors/sensor-1/telemetry',
+        host: 'mosquitto',
+        port: 1883,
+        connect_status: 'connected' as const,
+        connect_error: null,
+        attempted: 500,
+        accepted: 480,
+        success_rate: 0.96,
+        elapsed_seconds: 10.2,
+        achieved_rate: 49.0,
+        started_at: '2026-01-01T00:00:00.000Z',
+        finished_at: '2026-01-01T00:00:10.200Z',
+      };
+
+      const kpi = await service.recordMessageFloodResult('run-1', dto);
+
+      expect(kpi.trackBAttackType).toBe('message-flood');
+      expect(kpi.trackBResult).toEqual(dto);
+      expect(kpi.attackStartedAt).toEqual(new Date('2026-01-01T00:00:00.000Z'));
+      expect(kpi.attackFinishedAt).toEqual(new Date('2026-01-01T00:00:10.200Z'));
+      expect(kpis.save).toHaveBeenCalledTimes(1);
+    });
+
+    it('persists a rejected connection with zeroed/null counters', async () => {
+      const dto = {
+        target: 'secure' as const,
+        topic: 'sensors/sensor-1/telemetry',
+        host: 'mosquitto',
+        port: 8883,
+        connect_status: 'rejected' as const,
+        connect_error: 'conexão não estabelecida: handshake abortado (sem CONNACK)',
+        attempted: 0,
+        accepted: 0,
+        success_rate: null,
+        elapsed_seconds: 0,
+        achieved_rate: 0,
+        started_at: '2026-01-01T00:00:00.000Z',
+        finished_at: '2026-01-01T00:00:00.500Z',
+      };
+
+      const kpi = await service.recordMessageFloodResult('run-2', dto);
+
+      expect(kpi.trackBAttackType).toBe('message-flood');
+      expect((kpi.trackBResult as typeof dto).connect_status).toBe('rejected');
+      expect((kpi.trackBResult as typeof dto).success_rate).toBeNull();
+    });
+  });
+
+  describe('recordMalformedPayloadResult', () => {
+    it('persists the raw jsonb payload and parses started/finished timestamps', async () => {
+      const dto = {
+        target: 'plain' as const,
+        topic: 'sensors/sensor-1/telemetry',
+        host: 'mosquitto',
+        port: 1883,
+        mode: 'giant' as const,
+        connect_status: 'connected' as const,
+        connect_error: null,
+        attempted: 3,
+        publish_accepted: 3,
+        disconnected_after_publish: true,
+        broker_response_summary: 'broker desconectou apos publish',
+        started_at: '2026-01-01T00:00:00.000Z',
+        finished_at: '2026-01-01T00:00:02.000Z',
+      };
+
+      const kpi = await service.recordMalformedPayloadResult('run-1', dto);
+
+      expect(kpi.trackBAttackType).toBe('malformed-payload');
+      expect(kpi.trackBResult).toEqual(dto);
+      expect(kpi.attackStartedAt).toEqual(new Date('2026-01-01T00:00:00.000Z'));
+      expect(kpi.attackFinishedAt).toEqual(new Date('2026-01-01T00:00:02.000Z'));
+      expect(kpis.save).toHaveBeenCalledTimes(1);
+    });
+
+    it('persists a rejected connection with zeroed counters', async () => {
+      const dto = {
+        target: 'secure' as const,
+        topic: 'sensors/sensor-1/telemetry',
+        host: 'mosquitto',
+        port: 8883,
+        mode: 'invalid-json' as const,
+        connect_status: 'rejected' as const,
+        connect_error: 'conexão não estabelecida: handshake abortado (sem CONNACK)',
+        attempted: 0,
+        publish_accepted: 0,
+        disconnected_after_publish: false,
+        broker_response_summary: 'erro no cliente ao publicar',
+        started_at: '2026-01-01T00:00:00.000Z',
+        finished_at: '2026-01-01T00:00:00.300Z',
+      };
+
+      const kpi = await service.recordMalformedPayloadResult('run-2', dto);
+
+      expect(kpi.trackBAttackType).toBe('malformed-payload');
+      expect((kpi.trackBResult as typeof dto).connect_status).toBe('rejected');
+      expect((kpi.trackBResult as typeof dto).disconnected_after_publish).toBe(
+        false,
+      );
+    });
+  });
+
   describe('handleRunStopped', () => {
     const baseRun = {
       id: 'run-1',
