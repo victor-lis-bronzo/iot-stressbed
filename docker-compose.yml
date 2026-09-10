@@ -404,6 +404,7 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3000}
+        NEXT_PUBLIC_GRAFANA_URL: ${NEXT_PUBLIC_GRAFANA_URL:-http://localhost:3001}
     container_name: nextjs-web
     hostname: nextjs-web
 

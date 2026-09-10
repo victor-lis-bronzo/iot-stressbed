@@ -10,6 +10,8 @@ WORKDIR /app
 # essas variáveis no bundle client-side em build time, não em runtime.
 ARG NEXT_PUBLIC_API_URL=http://localhost:3000
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_GRAFANA_URL=http://localhost:3001
+ENV NEXT_PUBLIC_GRAFANA_URL=$NEXT_PUBLIC_GRAFANA_URL
 COPY --from=deps /app/node_modules ./node_modules
 COPY apps/web/ ./
 RUN npm run build

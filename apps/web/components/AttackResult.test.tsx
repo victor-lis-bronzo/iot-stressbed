@@ -63,4 +63,32 @@ describe('AttackResult', () => {
     expect(screen.getByText('42')).toBeInTheDocument();
     expect(screen.getByText('42.0%')).toBeInTheDocument();
   });
+
+  it('shows a link to the Grafana broker-metrics dashboard filtered by run_id when there is a relevant run', () => {
+    (useActiveRun as jest.Mock).mockReturnValue({
+      data: { id: 'run-1', mode: 'plain', attackType: 'connection-flood' },
+    });
+    (useDosRunHistory as jest.Mock).mockReturnValue({ data: [] });
+    (useDosRunResult as jest.Mock).mockReturnValue({ data: null, isPending: false });
+
+    render(<AttackResult />);
+
+    const link = screen.getByRole('link', { name: /ver métricas do broker no grafana/i });
+    expect(link).toHaveAttribute(
+      'href',
+      'http://localhost:3001/d/stressbed-broker-metrics/broker-metrics?var-run_id=run-1&from=now-15m&to=now',
+    );
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+  });
+
+  it('does not show the Grafana link when there is no relevant run', () => {
+    (useActiveRun as jest.Mock).mockReturnValue({ data: null });
+    (useDosRunHistory as jest.Mock).mockReturnValue({ data: [] });
+    (useDosRunResult as jest.Mock).mockReturnValue({ data: undefined, isPending: false });
+
+    render(<AttackResult />);
+
+    expect(screen.queryByRole('link', { name: /ver métricas do broker no grafana/i })).not.toBeInTheDocument();
+  });
 });
