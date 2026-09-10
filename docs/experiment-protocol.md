@@ -99,3 +99,35 @@ login, inicia uma run (`mode=plain|secure`, `attackType=injection`), dispara
 `attacker/python/injector.py` contra o broker escolhido, registra o resultado
 da injeção como KPI da run (`POST /metrics/runs/:runId/injection-result`) e
 encerra a run — mesmo se o injetor falhar (trap `EXIT`).
+
+## Uso de `scripts/run-experiment.sh` (Track B — disponibilidade/DoS)
+
+O mesmo script cobre as 3 tracks de Track B, reaproveitando o fluxo de
+login → start run → disparo do attacker → stop run. A diferença em relação a
+Track A: não existe ainda um endpoint de KPI para esses ataques (ver
+`docs/tasks.md`, tarefa "Medir KPIs do Track B"), então o script só ecoa o
+JSON de resultado de cada ataque em stdout, sem tentar registrá-lo via
+`/metrics`.
+
+```bash
+# Connection flood: N conexões MQTT simultâneas contra o broker escolhido.
+./scripts/run-experiment.sh connection-flood plain -- --connections 200
+
+# Message flood: publica em taxa (msg/s) configurável por uma duração configurável.
+./scripts/run-experiment.sh message-flood plain -- --rate 200 --duration-seconds 30
+
+# Payload malformado/gigante: exige a flag própria --mode do script (não
+# confundir com o <plain|secure> do run-experiment.sh), passada via
+# passthrough após o `--`.
+./scripts/run-experiment.sh malformed-payload plain -- --mode giant --size-bytes 10000000
+```
+
+Repetir cada comando trocando `plain` por `secure` mede o delta de overhead
+de TLS (tarefa seguinte do roadmap). Ao contrário do `injector.py`, os 3
+scripts de Track B não usam o exit code para sinalizar um achado de
+segurança — eles retornam `0` na quase totalidade dos casos, já que o
+resultado relevante (taxa de sucesso, desconexões, resposta do broker) fica
+no próprio JSON impresso em stdout. Ver `attacker/README.md` e o cabeçalho de
+cada script (`connection_flood.py`, `message_flood.py`,
+`malformed_payload.py`) para a lista completa de flags e o formato exato do
+JSON de resultado.
