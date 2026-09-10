@@ -78,5 +78,9 @@ export function useDosRunHistory() {
       const response = await api.get<RunKpi[]>('/metrics/runs');
       return response.data.filter((kpi) => kpi.trackBAttackType != null);
     },
+    // Uma run é normalmente encerrada pelo próprio run-experiment.sh via CLI,
+    // fora desta UI — sem polling, o histórico nunca refletiria o resultado de
+    // um ataque que acabou de terminar (mesmo motivo do polling em useActiveRun).
+    refetchInterval: 5000,
   });
 }
