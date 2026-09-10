@@ -4,3 +4,7 @@ paho-mqtt>=2.1,<3
 # Teste de scripts/pcap-entropy.py (parser pcap não usa dependências além da
 # stdlib; pytest é só para rodar o teste, já usado em attacker/).
 pytest>=8,<9
+# Fase 5 — scripts/analysis/export_run_metrics.py: lê Postgres (experiment_runs,
+# run_kpis) e InfluxDB (broker_metrics, telemetry) para gerar out/run_metrics.csv.
+psycopg2-binary>=2.9,<3
+influxdb-client>=1.40,<2

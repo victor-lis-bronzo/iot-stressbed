@@ -16,6 +16,11 @@ infra/mosquitto/*/log/
 # Resultados brutos de experimentos
 results/
 
+# Artefatos dos scripts de análise da Fase 5 (docs/specs/data-analysis.md):
+# out/run_metrics.csv, out/grafana/, out/comparison_table.{csv,md}. Mudam a cada
+# rodada de experimento e nunca são versionados.
+out/
+
 # Node / Python
 node_modules/
 dist/
