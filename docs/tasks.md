@@ -303,23 +303,31 @@ maior que isso na prática, quebrar mais). "Pronto quando" é sempre verificáve
 
 > Escopo deste repositório: dados agregados, exports e tabela comparativa. A
 > redação do artigo em si é feita fora do projeto — este repo é a ferramenta de
-> análise, não o texto final.
+> análise, não o texto final. Spec técnica: `docs/specs/data-analysis.md`.
 
-### Consultas InfluxDB agregadas por `run_id`
-- Pronto quando: existem queries (Flux) reutilizáveis que extraem os KPIs de
-  Track A e Track B agrupados por `run_id`, exportáveis em CSV/tabela.
+### ~~Consultas InfluxDB agregadas por `run_id`~~ — feito
+- Queries Flux reutilizáveis e versionadas em `scripts/analysis/flux/`
+  (`broker_metrics_by_run.flux`, `container_status_transitions.flux`,
+  `telemetry_by_run.flux`) extraem os KPIs de Track A e Track B agrupados por
+  `run_id`, consumidas por `scripts/analysis/export_run_metrics.py`, que gera o
+  CSV wide (`out/run_metrics.csv`) com uma linha por run. Ver
+  `docs/specs/data-analysis.md`.
 - Depende de: Calcular KPIs do Track A, Medir KPIs do Track B (plain e secure).
 - Tamanho: M.
 
-### Exports Grafana
-- Pronto quando: existem imagens/PDFs exportados dos dashboards Grafana
-  relevantes para cada track, prontos para uso externo (ex.: inclusão no
-  artigo, que é redigido fora deste repositório).
+### ~~Exports Grafana~~ — feito
+- `scripts/analysis/export_grafana.sh` exporta os painéis do dashboard
+  `stressbed-broker-metrics` como PNG por `run_id` (`out/grafana/<run_id>/`),
+  via API de renderização de imagem do Grafana. A infra do
+  `grafana-image-renderer` necessária para o export já foi adicionada ao
+  `docker-compose.yml`.
 - Depende de: Provisionar dashboards Grafana.
 - Tamanho: P.
 
-### Tabela comparativa plain vs secure (Track A e B)
-- Pronto quando: existe uma tabela única comparando os KPIs de ambos os tracks,
-  plain vs secure, lado a lado.
+### ~~Tabela comparativa plain vs secure (Track A e B)~~ — feito
+- `scripts/analysis/build_comparison_table.py` lê o CSV wide gerado pelo
+  Entregável 1 (`out/run_metrics.csv`), pareia cenários equivalentes plain vs
+  secure e produz `out/comparison_table.csv` e `out/comparison_table.md` com os
+  deltas por KPI.
 - Depende de: Consultas InfluxDB agregadas por run_id.
 - Tamanho: M.
