@@ -299,7 +299,11 @@ maior que isso na prática, quebrar mais). "Pronto quando" é sempre verificáve
 
 ---
 
-## Fase 5 — Análise & artigo
+## Fase 5 — Análise dos dados
+
+> Escopo deste repositório: dados agregados, exports e tabela comparativa. A
+> redação do artigo em si é feita fora do projeto — este repo é a ferramenta de
+> análise, não o texto final.
 
 ### Consultas InfluxDB agregadas por `run_id`
 - Pronto quando: existem queries (Flux) reutilizáveis que extraem os KPIs de
@@ -307,9 +311,10 @@ maior que isso na prática, quebrar mais). "Pronto quando" é sempre verificáve
 - Depende de: Calcular KPIs do Track A, Medir KPIs do Track B (plain e secure).
 - Tamanho: M.
 
-### Exports Grafana para o artigo
+### Exports Grafana
 - Pronto quando: existem imagens/PDFs exportados dos dashboards Grafana
-  relevantes para cada track, prontos para inclusão no artigo.
+  relevantes para cada track, prontos para uso externo (ex.: inclusão no
+  artigo, que é redigido fora deste repositório).
 - Depende de: Provisionar dashboards Grafana.
 - Tamanho: P.
 
@@ -318,9 +323,3 @@ maior que isso na prática, quebrar mais). "Pronto quando" é sempre verificáve
   plain vs secure, lado a lado.
 - Depende de: Consultas InfluxDB agregadas por run_id.
 - Tamanho: M.
-
-### Redação dos achados
-- Pronto quando: o texto do artigo referencia os KPIs e tabelas gerados, com as
-  conclusões sobre a vulnerabilidade do MQTT plain e a mitigação do MQTTS.
-- Depende de: Tabela comparativa plain vs secure.
-- Tamanho: G (fora do escopo de código — trabalho de redação).
