@@ -533,6 +533,18 @@ services:
       INFLUXDB_TOKEN: ${INFLUXDB_TOKEN:-dev-only-influx-token}
       INFLUXDB_ORG: ${INFLUXDB_ORG:-stressbed}
       INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-stressbed}
+      # RENDERIZAÇÃO DE IMAGEM (Fase 5, Entregável 2 — docs/specs/data-analysis.md):
+      # aponta o Grafana para o container `grafana-image-renderer` em vez de
+      # instalar o plugin nativo dentro desta imagem. É o padrão oficial
+      # recomendado pela própria Grafana Labs (plugin remoto via HTTP) e evita
+      # puxar as dependências de Chromium/headless para dentro do container do
+      # Grafana, mantendo a imagem `grafana/grafana:11.6.0` inalterada. O
+      # endpoint `/render/d-solo/...` usado por `scripts/analysis/
+      # export_grafana.sh` (implementado em outra tarefa) só funciona com uma
+      # destas duas variáveis configuradas.
+      GF_RENDERING_SERVER_URL: http://grafana-image-renderer:8081/render
+      GF_RENDERING_CALLBACK_URL: http://grafana:3000/
+      GF_LOG_FILTERS: rendering:debug
 
     volumes:
       - grafana-data:/var/lib/grafana
@@ -547,6 +559,8 @@ services:
     depends_on:
       influxdb:
         condition: service_healthy
+      grafana-image-renderer:
+        condition: service_started
 
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health >/dev/null 2>&1"]
@@ -554,6 +568,30 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+
+  # RENDERIZADOR DE IMAGEM DO GRAFANA (Fase 5, Entregável 2 —
+  # docs/specs/data-analysis.md): container separado em vez de plugin nativo
+  # instalado dentro da imagem `grafana`. Motivo da escolha (ver comentário
+  # acima no serviço `grafana`): é o modo "remote rendering" oficial da
+  # Grafana Labs, evita inflar/instabilizar a imagem oficial do Grafana com
+  # Chromium headless, e mantém o processo de renderização isolado (pode
+  # reiniciar/escalar sem afetar o Grafana em si). Só entrega a
+  # infraestrutura — quem efetivamente chama `/render/d-solo/...` é o script
+  # `scripts/analysis/export_grafana.sh` (fora do escopo desta tarefa).
+  grafana-image-renderer:
+    image: grafana/grafana-image-renderer:3.12.4
+    container_name: stressbed-grafana-image-renderer
+    hostname: grafana-image-renderer
+
+    restart: unless-stopped
+
+    environment:
+      ENABLE_METRICS: "false"
+
+    networks:
+      - stressbed-net
+
+    cpuset: ${STACK_CPUSET:-0,1}
 
   # Métricas de container -> InfluxDB (`broker_metrics`). CAMINHO INDEPENDENTE
   # (ADR-0003): depende apenas do socket do Docker e do InfluxDB, nunca do
