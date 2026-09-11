@@ -297,6 +297,37 @@ maior que isso na prática, quebrar mais). "Pronto quando" é sempre verificáve
 - Tamanho: P.
 - Teste: manual, checklist em `docs/specs/attacker-resource-limits.md`.
 
+### Endpoint de start/stop gerenciado para os scripts do attacker (Track A e B)
+- Pronto quando: existe um endpoint que inicia a run (reusando o singleton da
+  ADR-0006) e dispara `docker compose exec -T attacker python <script> ...`
+  pelo próprio backend, e outro que interrompe o processo em execução e
+  finaliza a run — para os quatro scripts (`injector.py` de Track A;
+  `connection_flood.py`, `message_flood.py`, `malformed_payload.py` de
+  Track B).
+- Depende de: `scripts/run-experiment.sh` (orquestração de ataque).
+- Tamanho: M.
+- Teste: unit test do guard de conflito (segunda chamada de start rejeitada
+  enquanto há processo ativo); integração disparando um ataque real curto e
+  confirmando resultado registrado em `/metrics/runs/:runId/:attackType-result`.
+- Ver spec: `docs/specs/attacker-managed-execution.md`.
+
+### Toggle de ataque na UI (substituir "Copiar" por "Iniciar/Parar")
+- Pronto quando: `AttackForm.tsx` dispara e interrompe o ataque chamando o
+  endpoint acima, em vez de só montar um comando para copiar; o resultado
+  continua aparecendo em `AttackResult`/`AttackHistory` como hoje.
+- Depende de: Endpoint de start/stop gerenciado para os scripts do attacker.
+- Tamanho: M.
+- Ver spec: `docs/specs/attacker-managed-execution.md`.
+
+### Timeout e limpeza de processo travado do attacker
+- Pronto quando: um processo disparado pelo endpoint de start que não retorna
+  dentro de um tempo configurável é morto (`SIGTERM` com fallback `SIGKILL`) e
+  a run correspondente é finalizada com erro, em vez de ficar presa como
+  ativa indefinidamente.
+- Depende de: Endpoint de start/stop gerenciado para os scripts do attacker.
+- Tamanho: P.
+- Ver spec: `docs/specs/attacker-managed-execution.md`.
+
 ---
 
 ## Fase 5 — Análise dos dados
