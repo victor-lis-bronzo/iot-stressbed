@@ -1,9 +1,20 @@
 'use client';
 
-import { useState } from 'react';
+import { isAxiosError } from 'axios';
 import { useForm, useWatch } from 'react-hook-form';
-import { useActiveRun } from '@/hooks/useExperimentRuns';
+import { useActiveRun, useStartAttack, useStopRun } from '@/hooks/useExperimentRuns';
 import type { TrackBAttackType } from '@/hooks/useDosMetrics';
+
+// O NestJS devolve o texto do ConflictException (ex.: "An attack is already
+// running") em `response.data.message` — `error.message` do próprio Axios é
+// só um genérico tipo "Request failed with status code 409".
+function extractErrorMessage(error: unknown): string {
+  if (isAxiosError(error)) {
+    const data = error.response?.data as { message?: string } | undefined;
+    if (data?.message) return data.message;
+  }
+  return error instanceof Error ? error.message : 'Falha ao processar o pedido.';
+}
 
 type MalformedMode = 'giant' | 'invalid-utf8' | 'invalid-json' | 'null-bytes';
 
@@ -24,30 +35,30 @@ const INPUT_CLASS =
   'mt-1 block w-full rounded border border-border bg-base focus:border-secured focus:ring-secured sm:text-sm p-2';
 
 /**
- * Monta o comando do run-experiment.sh a partir dos campos preenchidos. Só
- * inclui flags com valor não vazio — os scripts do attacker já têm defaults
- * sensatos para tudo que for omitido (attacker/python/args_*.py).
+ * Monta os flags/valores para o endpoint /experiments/attacks/start a partir
+ * dos campos preenchidos, como array (sem shell envolvido). Só inclui flags
+ * com valor não vazio — os scripts do attacker já têm defaults sensatos para
+ * tudo que for omitido (attacker/python/args_*.py).
  */
-function buildCommand(fields: AttackFormFields): string {
-  const flags: string[] = [];
+function buildArgs(fields: AttackFormFields): string[] {
+  const args: string[] = [];
 
   if (fields.attackType === 'connection-flood') {
-    if (fields.connections) flags.push(`--connections ${fields.connections}`);
-    if (fields.holdSeconds) flags.push(`--hold-seconds ${fields.holdSeconds}`);
+    if (fields.connections) args.push('--connections', fields.connections);
+    if (fields.holdSeconds) args.push('--hold-seconds', fields.holdSeconds);
   } else if (fields.attackType === 'message-flood') {
-    if (fields.rate) flags.push(`--rate ${fields.rate}`);
-    if (fields.durationSeconds) flags.push(`--duration-seconds ${fields.durationSeconds}`);
-    if (fields.payloadSizeBytes) flags.push(`--payload-size-bytes ${fields.payloadSizeBytes}`);
+    if (fields.rate) args.push('--rate', fields.rate);
+    if (fields.durationSeconds) args.push('--duration-seconds', fields.durationSeconds);
+    if (fields.payloadSizeBytes) args.push('--payload-size-bytes', fields.payloadSizeBytes);
   } else if (fields.attackType === 'malformed-payload') {
-    flags.push(`--mode ${fields.malformedMode}`);
+    args.push('--mode', fields.malformedMode);
     if (fields.malformedMode === 'giant' && fields.sizeBytes) {
-      flags.push(`--size-bytes ${fields.sizeBytes}`);
+      args.push('--size-bytes', fields.sizeBytes);
     }
-    if (fields.count) flags.push(`--count ${fields.count}`);
+    if (fields.count) args.push('--count', fields.count);
   }
 
-  const base = `./scripts/run-experiment.sh ${fields.attackType} ${fields.mode}`;
-  return flags.length > 0 ? `${base} -- ${flags.join(' ')}` : base;
+  return args;
 }
 
 const DEFAULT_VALUES: AttackFormFields = {
@@ -65,7 +76,8 @@ const DEFAULT_VALUES: AttackFormFields = {
 
 export default function AttackForm() {
   const { data: activeRun } = useActiveRun();
-  const [copied, setCopied] = useState(false);
+  const startAttack = useStartAttack();
+  const stopRun = useStopRun();
   const { register, control } = useForm<AttackFormFields>({
     defaultValues: DEFAULT_VALUES,
   });
@@ -73,23 +85,26 @@ export default function AttackForm() {
   // useWatch (em vez de form.watch()) porque watch() retorna uma função nova a
   // cada render e não pode ser memoizada pelo React Compiler deste projeto.
   const fields = { ...DEFAULT_VALUES, ...useWatch({ control }) };
-  const command = buildCommand(fields);
   const disabled = !!activeRun;
+  const toggleError = activeRun ? stopRun.error : startAttack.error;
 
-  const handleCopy = async () => {
-    await navigator.clipboard.writeText(command);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleToggle = () => {
+    if (activeRun) {
+      stopRun.mutate();
+    } else {
+      startAttack.mutate({ track: fields.attackType, mode: fields.mode, args: buildArgs(fields) });
+    }
   };
 
   return (
     <div className="bg-panel border border-border rounded p-6 mb-8">
       <h3 className="text-lg font-medium text-primary mb-1">Disparar ataque (Track B)</h3>
       <p className="text-sm text-muted mb-4">
-        O disparo continua via CLI — não existe hoje um caminho seguro para o NestJS executar o
-        container <code>attacker</code> sem arriscar duas fontes disputando a mesma run ativa
-        (ADR-0006). Monte o comando abaixo, copie e rode no terminal; esta tela acompanha o
-        resultado automaticamente assim que a run terminar.
+        O disparo é feito diretamente por esta tela — o NestJS executa e interrompe o script no
+        container <code>attacker</code> em nome da run ativa, sem arriscar duas fontes disputando a
+        mesma run (ADR-0006, agora resolvido por esse caminho gerenciado). O
+        <code> scripts/run-experiment.sh</code> continua disponível como via avançada/offline, para
+        quando a API não estiver acessível.
       </p>
 
       {disabled && (
@@ -245,24 +260,23 @@ export default function AttackForm() {
         )}
 
         <div>
-          <label htmlFor="command" className="block text-sm font-medium text-primary">
-            Comando
-          </label>
-          <div className="mt-1 flex gap-2">
-            <input
-              id="command"
-              readOnly
-              value={command}
-              className="flex-1 rounded border border-border bg-base p-2 font-mono text-xs text-primary"
-            />
-            <button
-              type="button"
-              onClick={handleCopy}
-              className="rounded border border-transparent bg-secured px-3 py-1.5 text-sm font-medium text-[#14181F] hover:opacity-90"
-            >
-              {copied ? 'Copiado!' : 'Copiar'}
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={handleToggle}
+            disabled={activeRun ? stopRun.isPending : startAttack.isPending}
+            className="rounded border border-transparent bg-secured px-3 py-1.5 text-sm font-medium text-[#14181F] hover:opacity-90 disabled:opacity-50"
+          >
+            {activeRun
+              ? stopRun.isPending
+                ? 'Parando...'
+                : 'Parar ataque'
+              : startAttack.isPending
+                ? 'Iniciando...'
+                : 'Iniciar ataque'}
+          </button>
+          {toggleError && (
+            <p className="mt-2 text-sm text-critical">{extractErrorMessage(toggleError)}</p>
+          )}
         </div>
       </form>
     </div>

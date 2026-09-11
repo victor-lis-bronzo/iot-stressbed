@@ -31,13 +31,36 @@ export function useActiveRun() {
   });
 }
 
+export interface StartAttackPayload {
+  track: 'injection' | 'connection-flood' | 'message-flood' | 'malformed-payload';
+  mode: 'plain' | 'secure';
+  args?: string[];
+}
+
+export function useStartAttack() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (payload: StartAttackPayload) => {
+      const response = await api.post<ExperimentRun>('/experiments/attacks/start', payload);
+      return response.data;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ACTIVE_RUN_KEY }),
+  });
+}
+
 export function useStopRun() {
   const api = useApi();
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async () => {
-      const response = await api.post<ExperimentRun | null>('/experiments/runs/stop');
+      // Vai para /experiments/attacks/stop (superset de /experiments/runs/stop:
+      // também mata o processo do script gerenciado no container attacker, se
+      // houver um; é no-op seguro quando não há nada gerenciado) — ver
+      // docs/specs/attacker-managed-execution.md.
+      const response = await api.post<ExperimentRun | null>('/experiments/attacks/stop');
       return response.data;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ACTIVE_RUN_KEY }),
