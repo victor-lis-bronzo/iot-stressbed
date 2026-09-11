@@ -1,74 +1,154 @@
 # IoT StressBed
 
-Testbed de Iniciação Científica que compara empiricamente MQTT puro (sem
-TLS/auth) contra MQTT com TLS/mTLS (grupo de controle "secure"), sobre a
-mesma topologia e carga. **Track A** cobre confidencialidade/integridade
-(eavesdropping e injeção/spoofing de mensagens); **Track B** cobre
-disponibilidade (DoS por flooding de conexões, de mensagens e por payload
-malformado). Cada ataque roda contra o broker `plain` e é repetido, sem
-alterações, contra o broker `secure` — o controle científico que evidencia o
-efeito real da proteção.
+Testbed de Iniciação Científica para avaliação empírica de vulnerabilidades do
+protocolo **MQTT** operando sem segurança (porta 1883, sem TLS/autenticação),
+comparado lado a lado com **MQTTS** (mTLS + autenticação) como grupo de
+controle científico, sob a mesma topologia e carga.
 
-## Quick start
+## Objetivo
+
+A plataforma existe para demonstrar, com dados reproduzíveis, o que acontece
+quando um broker MQTT é exposto sem segurança de transporte. Ela é
+simultaneamente a ferramenta que executa/audita os experimentos e a prova
+viva de uma das vulnerabilidades em estudo (o próprio módulo de captura atua
+como um subscriber malicioso, assinando `#` e auditando toda a telemetria em
+tempo real).
+
+O estudo é dividido em duas trilhas independentes:
+
+- **Track A — Confidencialidade & Integridade**: eavesdropping (o módulo
+  `capture` do backend intercepta toda a telemetria sem autorização) e
+  injeção/spoofing (um script Python publica leituras forjadas no tópico do
+  sensor legítimo, indistinguíveis no broker plain).
+- **Track B — Disponibilidade (DoS)**: connection flood, message flood e
+  payload malformado/gigante, disparados por um container `attacker` isolado
+  por cgroups, medindo degradação, crash e recuperação do broker.
+
+Cada trilha é executada contra o broker **plain** (alvo) e repetida contra o
+broker **secure** (mTLS + auth) como controle, permitindo comparar o
+delta de proteção que o TLS/autenticação oferece.
+
+## Arquitetura
+
+```
+                         ┌────────────────────┐
+   ESP32 (firmware) ───▶ │  mosquitto-plain    │◀──── attacker (Track A/B)
+   (publisher legítimo)  │  1883, sem TLS/auth │      (Python + Paho, cgroups)
+                         └─────────┬───────────┘
+                                   │
+                         ┌─────────┴───────────┐
+                         │  mosquitto-secure    │
+                         │  8883, mTLS + auth   │
+                         └─────────┬───────────┘
+                                   │ (subscribe "#")
+                         ┌─────────▼───────────┐
+                         │   nestjs-api          │── auth / sensors / capture
+                         │   (capture, realtime, │── experiments / metrics
+                         │    experiments, ...)  │── WebSocket (realtime)
+                         └───┬───────────┬───────┘
+                             │           │
+                    ┌────────▼──┐   ┌────▼─────────┐
+                    │ postgres   │   │ influxdb      │◀── telegraf (métricas
+                    │ (estado)   │   │ (série tempo.) │    de container, canal
+                    └────────────┘   └────┬──────────┘    independente do API)
+                                          │
+                                    ┌─────▼──────┐
+                                    │  grafana    │
+                                    └─────┬──────┘
+                                          │
+                                    ┌─────▼──────┐
+                                    │ nextjs-web  │── dashboard / console de
+                                    │ (frontend)  │   ataque / histórico
+                                    └────────────┘
+```
+
+Todos os serviços rodam em rede Docker isolada (`stressbed-net`), com
+limites de CPU/memória/PIDs via cgroups aplicados aos brokers e ao container
+atacante — garantindo que a stack de observação (Postgres/InfluxDB/Grafana/
+Telegraf/API/Web) não trave junto com o broker sob ataque.
+
+## Stack tecnológica
+
+| Camada | Tecnologias |
+|---|---|
+| Backend | NestJS 10 + TypeScript, `mqtt` (cliente MQTT), TypeORM, JWT/bcrypt, Socket.IO |
+| Frontend | Next.js 16 + React 19, Auth.js v5, React Query, Tailwind 4 |
+| Ataque/carga | Python + `paho-mqtt`, `pytest` (testes unitários e de integração) |
+| Broker | Eclipse Mosquitto 2.0.20 (instâncias plain e secure) |
+| Observabilidade | InfluxDB 2.7, Grafana 11.6, Telegraf 1.34 |
+| Estado de aplicação | PostgreSQL 16 |
+| Firmware | ESP32 (publisher legítimo de telemetria) |
+| Orquestração | Docker Compose (bootstrap único) |
+
+## Como subir o ambiente
 
 ```bash
+cp .env.example .env   # opcional — defaults de laboratório já funcionam
 docker compose up
 ```
 
-Sobe toda a topologia (brokers, backend, frontend, observabilidade) e gera os
-certificados mTLS automaticamente. Passo a passo completo (portas, login,
-variáveis de ambiente) em [`docs/getting-started.md`](docs/getting-started.md).
+Um único `docker compose up` sobe toda a topologia, incluindo geração
+automática de certificados mTLS. Principais portas expostas:
 
-## Stack
+- `1883` — Mosquitto plain (MQTT, sem TLS)
+- `8883` — Mosquitto secure (MQTTS, mTLS)
+- `3000` — API (NestJS)
+- `3001` — Grafana
+- `3002` — Web (dashboard/console de ataque)
 
-- **Mosquitto** — dois brokers: `plain` (1883, sem TLS/auth) e `secure`
-  (8883, TLS + mTLS + senha).
-- **NestJS** — backend modular (`auth`, `sensors`, `capture`, `experiments`,
-  `metrics`, `realtime`).
-- **Next.js + Tailwind** — dashboard de observação dos experimentos.
-- **InfluxDB + Grafana** — série temporal (telemetria e métricas de saúde do
-  broker/host).
-- **PostgreSQL** — estado da aplicação (usuários, sensores, metadados de run).
-- **Telegraf** — coleta métricas de container/host por fora do NestJS,
-  caminho independente do de captura.
-- **Python + Paho** (`attacker/`) — tooling de flooding (Track B) e
-  injeção (Track A).
-- **ESP32 (C++/Arduino ou PlatformIO)** — publisher legítimo (`firmware/`).
+O serviço `mock-sensor` (perfil `dev-tools`, opt-in) simula telemetria de
+desenvolvimento no lugar do ESP32 físico.
 
-## Estrutura do repositório
+## Estrutura de diretórios
 
-- `apps/` — backend NestJS (`api`) e frontend Next.js (`web`).
-- `attacker/` — scripts Python de ataque (Track A e Track B).
-- `firmware/` — firmware do ESP32 (publisher legítimo).
-- `infra/` — configuração de Grafana, InfluxDB, Mosquitto e Telegraf.
-- `scripts/` — automação de experimento (bootstrap, certificados, captura de
-  pcap) e análise de dados (`scripts/analysis/`).
-- `docs/` — especificação, arquitetura, protocolo de experimento, ADRs e
-  guias.
+```
+iot-stressbed/
+├── apps/
+│   ├── api/        # Backend NestJS (auth, sensors, capture, experiments, metrics, realtime)
+│   └── web/         # Frontend Next.js (dashboard, console de ataque, login)
+├── attacker/        # Scripts Python/Paho de injeção (Track A) e DoS (Track B)
+├── docs/            # ADRs, specs funcionais, protocolo de experimentos, backlog por fase
+├── firmware/
+│   └── esp32/sensor/ # Firmware do publisher legítimo
+├── infra/           # Configs de Mosquitto, Grafana, InfluxDB, Telegraf
+├── scripts/          # gen-certs, run-experiment, capture-pcap, mock-sensor
+└── docker-compose.yml
+```
 
-## Guias
+## Métricas e observabilidade
 
-- [`docs/getting-started.md`](docs/getting-started.md) — subir o ambiente,
-  portas e primeiro acesso.
-- [`docs/track-a-guide.md`](docs/track-a-guide.md) — como rodar os
-  experimentos de confidencialidade/integridade.
-- [`docs/track-b-guide.md`](docs/track-b-guide.md) — como rodar os
-  experimentos de disponibilidade/DoS.
-- [`scripts/analysis/README.md`](scripts/analysis/README.md) — ferramentas
-  de análise (Fase 5): exportação de KPIs, tabela comparativa plain vs
-  secure e PNGs do Grafana.
+- **Grafana**: dashboard `broker-metrics` (CPU%, memória, rede, status/restart
+  do container), filtrável por `run_id`. O console de ataque do frontend
+  linka diretamente para o painel filtrado na janela de tempo do run.
+- **InfluxDB**: measurements `telemetry` (dados de domínio do sensor),
+  `broker_metrics` (saúde do broker/host, escrito pelo Telegraf,
+  independente do backend) e `capture_meta` (eventos de falha/reconexão).
+- **Dashboard ao vivo**: telemetria plain vs secure lado a lado via
+  WebSocket, com meta de latência p95 < 1s.
 
-## Documentação de referência
+## Status do projeto (fases)
 
-- [`docs/spec.md`](docs/spec.md) — especificação de escopo e KPIs.
-- [`docs/architecture.md`](docs/architecture.md) — arquitetura consolidada.
-- [`docs/experiment-protocol.md`](docs/experiment-protocol.md) — protocolo
-  de execução dos experimentos.
-- [`docs/tasks.md`](docs/tasks.md) — backlog de tarefas do projeto.
-- [`docs/adr/`](docs/adr/) — decisões arquiteturais individuais, entre elas
-  o uso de InfluxDB+Grafana para série temporal ([ADR-0001](docs/adr/0001-influxdb-grafana-for-time-series.md))
-  e o caminho de métricas independente do caminho de captura ([ADR-0003](docs/adr/0003-independent-metrics-path.md)).
+| Fase | Escopo | Status |
+|---|---|---|
+| 0.5 | Fundação de infra (TLS, brokers, observabilidade, isolamento de recursos) | Concluída |
+| 1 | Baseline (backend, firmware, dashboard ao vivo) | Concluída |
+| 2 | Track A — interceptação e injeção | Concluída |
+| 3 | Auditoria/instrumentação (Telegraf + Grafana) | Concluída |
+| 4 | Track B — DoS (flood, console de ataque) | Praticamente concluída |
+| 5 | Análise dos dados agregados (sem redação de artigo, feita fora do repo) | Em andamento |
 
-## Estado do projeto
+## Desenvolvimento assistido por IA
 
-O backlog e o status das fases estão em [`docs/tasks.md`](docs/tasks.md).
+Este projeto foi construído inteiramente sob **desenvolvimento orientado por
+IA** ("AI-native development"): a modelagem, arquitetura e implementação
+foram conduzidas em conjunto com o **Claude** (Anthropic) e a **Antigravity
+IDE**, com o autor atuando como orquestrador — definindo objetivos,
+validando decisões arquiteturais e revisando cada etapa do trabalho.
+
+## Não-objetivos
+
+- Não é uma plataforma IoT de produção.
+- Não ataca brokers de terceiros — toda a topologia roda isolada em rede
+  Docker local.
+- Não implementa criptografia própria (usa TLS/mTLS padrão do Mosquitto).
+- Não cobre outros protocolos IoT (CoAP, AMQP, etc).
