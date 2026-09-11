@@ -358,6 +358,13 @@ services:
 
     volumes:
       - ./infra/mosquitto/secure/certs:/certs:ro
+      # Read-write (diferente do mount só-leitura do telegraf): a API usa
+      # dockerode para dar exec/kill em processos dentro do container
+      # `attacker` (start/stop de ataques disparado pelo backend, ver
+      # docs/specs/attacker-managed-execution.md). Roda como root neste
+      # container (sem `USER` no Dockerfile), então não precisa do
+      # workaround de GID que o telegraf usa para o mount só-leitura dele.
+      - ${API_DOCKER_SOCK:-/var/run/docker.sock}:/var/run/docker.sock
 
     networks:
       - stressbed-net
