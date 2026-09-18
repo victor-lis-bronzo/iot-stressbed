@@ -12,6 +12,7 @@ interface AttackFormFields {
   mode: 'plain' | 'secure';
   connections: string;
   holdSeconds: string;
+  connectTimeout: string;
   rate: string;
   durationSeconds: string;
   payloadSizeBytes: string;
@@ -34,6 +35,7 @@ function buildCommand(fields: AttackFormFields): string {
   if (fields.attackType === 'connection-flood') {
     if (fields.connections) flags.push(`--connections ${fields.connections}`);
     if (fields.holdSeconds) flags.push(`--hold-seconds ${fields.holdSeconds}`);
+    if (fields.connectTimeout) flags.push(`--connect-timeout ${fields.connectTimeout}`);
   } else if (fields.attackType === 'message-flood') {
     if (fields.rate) flags.push(`--rate ${fields.rate}`);
     if (fields.durationSeconds) flags.push(`--duration-seconds ${fields.durationSeconds}`);
@@ -55,6 +57,7 @@ const DEFAULT_VALUES: AttackFormFields = {
   mode: 'plain',
   connections: '',
   holdSeconds: '',
+  connectTimeout: '',
   rate: '',
   durationSeconds: '',
   payloadSizeBytes: '',
@@ -128,7 +131,7 @@ export default function AttackForm() {
         </div>
 
         {fields.attackType === 'connection-flood' && (
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <div>
               <label htmlFor="connections" className="block text-sm font-medium text-primary">
                 --connections (default 100)
@@ -151,6 +154,18 @@ export default function AttackForm() {
                 disabled={disabled}
                 className={INPUT_CLASS}
                 {...register('holdSeconds')}
+              />
+            </div>
+            <div>
+              <label htmlFor="connectTimeout" className="block text-sm font-medium text-primary">
+                --connect-timeout (default 10.0)
+              </label>
+              <input
+                id="connectTimeout"
+                type="number"
+                disabled={disabled}
+                className={INPUT_CLASS}
+                {...register('connectTimeout')}
               />
             </div>
           </div>

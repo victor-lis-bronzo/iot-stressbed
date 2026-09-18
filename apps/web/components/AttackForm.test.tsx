@@ -37,6 +37,16 @@ describe('AttackForm', () => {
     ).toBeInTheDocument();
   });
 
+  it('updates the command when --connect-timeout is filled in', () => {
+    render(<AttackForm />);
+
+    fireEvent.change(screen.getByLabelText(/--connect-timeout/), { target: { value: '15' } });
+
+    expect(
+      screen.getByDisplayValue('./scripts/run-experiment.sh connection-flood plain -- --connect-timeout 15')
+    ).toBeInTheDocument();
+  });
+
   it('always includes --mode for malformed-payload, since the script requires it', () => {
     render(<AttackForm />);
 
