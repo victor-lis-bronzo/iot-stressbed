@@ -147,6 +147,22 @@ if [[ -z "$RUN_ID" ]]; then
   exit 1
 fi
 
+# --- Propagação do run_id para o telegraf --------------------------------- #
+# O telegraf carimba `run_id` em `broker_metrics` a partir de [global_tags]
+# (infra/telegraf/telegraf.conf), que é resolvido a partir do env var RUN_ID no
+# START do container — não é relido em runtime. Exportar a variável aqui não
+# basta: sem recriar o container, todos os pontos continuariam com o default
+# `run_id="none"` do docker-compose.yml e o dashboard/flux filtrado pelo run id
+# real não acharia nada. Daí o `up -d telegraf`, que recria o container com o
+# novo valor.
+export RUN_ID
+docker compose up -d telegraf
+
+# A recriação derruba o telegraf por alguns instantes e o primeiro ciclo de
+# coleta só ocorre um intervalo depois de subir: sem esta pausa o começo do
+# ataque cairia na janela cega e ficaria sem pontos sob o run_id novo.
+sleep "${TELEGRAF_INTERVAL:-5s}"
+
 # A run precisa ser encerrada mesmo se o ataque falhar. O caso `injection`
 # contra `secure` retorna exit 1 quando o broker aceita o atacante (achado
 # grave) — e mesmo nesse cenário o stop tem que rodar, senão a run fica presa
@@ -159,6 +175,13 @@ stop_run() {
   curl -sS -X POST "${API_BASE_URL}/experiments/runs/stop" \
     -H "Authorization: Bearer ${TOKEN}" \
     -H 'Content-Type: application/json' >/dev/null || true
+  # Volta o carimbo do telegraf para o default `none`: fora de uma run ativa os
+  # pontos de `broker_metrics` não podem continuar atribuídos a esta run. Mesma
+  # mecânica do start (global_tags fixado na subida do container), por isso
+  # recria de novo. Best-effort como o stop acima — falhar aqui não pode
+  # mascarar o exit code real do ataque.
+  export RUN_ID="none"
+  docker compose up -d telegraf >/dev/null 2>&1 || true
   echo "==> run finalizada." >&2
 }
 trap stop_run EXIT
