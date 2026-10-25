@@ -375,3 +375,14 @@ maior que isso na prática, quebrar mais). "Pronto quando" é sempre verificáve
 - Teste: `npm test` em `apps/api` (cobre `bcrypt.hash`/`compare`); build local
   do `api` sem toolchain e `require('bcrypt')` no container; após o merge, conferir
   o log do run do Actions e as 4 imagens `success` no Docker Hub.
+
+### Corrigir token do InfluxDB no api e healthcheck do web no compose
+- Pronto quando: `docker compose up` sem `.env` deixa todos os serviços `healthy`
+  (inclusive `nextjs-web`) e uma mensagem publicada em `mosquitto-plain` aparece
+  como ponto `telemetry` no InfluxDB, sem `unauthorized access` no log do
+  `nestjs-api`. Ver issue #23 e a atualização do [[ADR-0008]].
+- Depende de: Workflow de publicação no Docker Hub.
+- Tamanho: P.
+- Teste: manual de ponta a ponta — `mosquitto_pub` no broker plain, esperar o
+  flush de 60s do cliente InfluxDB e consultar o measurement `telemetry`;
+  `GET /metrics/runs` autenticado retorna 200.

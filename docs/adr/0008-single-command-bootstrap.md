@@ -72,3 +72,16 @@ bootstrap completo:
   `admin`/`admin`, tokens fixos) são para uso local de pesquisa, atrás da
   bridge `stressbed-net` — não devem ser usados em qualquer deploy exposto
   fora de um laboratório isolado.
+
+## Atualização: lacunas achadas no teste da stack (issue #23)
+O teste da stack a partir das imagens publicadas, sem `.env`, mostrou dois defeitos
+que contrariavam o objetivo deste ADR:
+- **api sem credenciais do InfluxDB:** o serviço `nestjs-api` só recebia
+  `INFLUXDB_URL`; o código cai no default de token vazio e o InfluxDB responde
+  `unauthorized`, então nenhuma telemetria era gravada nem consultada. O compose
+  agora passa `INFLUXDB_TOKEN`, `INFLUXDB_ORG` e `INFLUXDB_BUCKET` com os mesmos
+  defaults de `influxdb`, `grafana` e `telegraf`. Corrige também o caso de quem
+  muda `INFLUXDB_ORG`/`INFLUXDB_BUCKET` num `.env` e deixava o api no default.
+- **healthcheck do `nextjs-web`:** consultava `/`, que responde 307 para
+  `http://localhost:3002/login`; o `wget` seguia o redirect e `localhost` resolve
+  para `::1` no alpine, onde o Next não escuta. Passou a consultar `/login`.
