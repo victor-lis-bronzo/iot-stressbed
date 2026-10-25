@@ -331,3 +331,36 @@ maior que isso na prática, quebrar mais). "Pronto quando" é sempre verificáve
   deltas por KPI.
 - Depende de: Consultas InfluxDB agregadas por run_id.
 - Tamanho: M.
+
+---
+
+## Fase 6 — Distribuição de imagens
+
+> Imagens pré-buildadas no Docker Hub para o laboratório só baixar e rodar
+> ([[ADR-0009]]).
+
+### Adicionar `image:` aos serviços no compose
+- Pronto quando: `nestjs-api`, `nextjs-web`, `attacker` e `mock-sensor` têm
+  `image: devvictorlis/stressbed-*:latest` ao lado do `build:`, e `docker compose config`
+  resolve sem erro e sem `.env`.
+- Depende de: —
+- Tamanho: P.
+- Teste: `docker compose config` (sem `.env`) lista os 4 `image:`.
+
+### Workflow de publicação no Docker Hub
+- Pronto quando: `.github/workflows/publish-images.yml` builda e publica as 4 imagens
+  (`latest` + sha curto) em push na `master` ou disparo manual, e as imagens aparecem
+  públicas em `hub.docker.com/u/devvictorlis`.
+- Depende de: Adicionar `image:` aos serviços no compose; secrets
+  `DOCKERHUB_USERNAME`/`DOCKERHUB_TOKEN` criados no GitHub.
+- Tamanho: M.
+- Teste: manual — run do Actions verde para as 4 entradas da matrix.
+
+### Documentar fluxo pull no lab
+- Pronto quando: README e `docs/getting-started.md` descrevem `docker compose up`
+  (baixa sem buildar), `docker compose pull` (atualiza) e `--build` (dev), com a
+  limitação do `NEXT_PUBLIC_*`.
+- Depende de: Workflow de publicação no Docker Hub.
+- Tamanho: P.
+- Teste: máquina limpa: `docker compose pull && docker compose up -d` sobe tudo
+  `healthy` sem buildar.

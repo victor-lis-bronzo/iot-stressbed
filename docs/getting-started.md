@@ -30,7 +30,8 @@ Isso inclui, sem nenhum passo manual adicional:
   (roda `scripts/gen-certs.sh` dentro de um container antes do `mosquitto-secure`
   subir — se os certificados já existirem em `infra/mosquitto/secure/certs/`, o
   serviço só confirma e sai);
-- build e subida do backend (`nestjs-api`) e do frontend (`nextjs-web`);
+- subida do backend (`nestjs-api`) e do frontend (`nextjs-web`), a partir de imagens
+  pré-buildadas baixadas do Docker Hub (ver abaixo);
 - subida da infra de observação (Postgres, InfluxDB, Grafana, Telegraf) e dos dois
   brokers Mosquitto (plain e secure).
 
@@ -39,6 +40,27 @@ e o usuário administrador é criado automaticamente no boot do backend
 (`AuthService.onModuleInit()` → `seedDefaultAdmin()`), a partir de
 `AUTH_ADMIN_EMAIL`/`AUTH_ADMIN_PASSWORD`. Se essas duas variáveis não estiverem
 definidas, nenhum usuário é criado.
+
+### Imagens pré-buildadas (fluxo do laboratório)
+
+Conforme o [[ADR-0009]], as imagens de `nestjs-api`, `nextjs-web`, `attacker` e
+`mock-sensor` são publicadas em `devvictorlis/stressbed-*` no Docker Hub.
+`docker compose up` **baixa** essas imagens se não existirem localmente, sem buildar
+nada — é o caminho da máquina do laboratório. Para atualizar:
+
+```bash
+docker compose pull && docker compose up -d
+```
+
+Para desenvolvimento, buildar localmente a partir do código:
+
+```bash
+docker compose up --build
+```
+
+Limitação: `NEXT_PUBLIC_API_URL`/`NEXT_PUBLIC_GRAFANA_URL` são embutidos no bundle do
+`nextjs-web` em build time e a imagem publicada usa `localhost`; o dashboard deve ser
+aberto na própria máquina do lab (ou rebuildar a imagem web com `--build`).
 
 ### `.env` é opcional
 

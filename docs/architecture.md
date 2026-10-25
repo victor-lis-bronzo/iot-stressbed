@@ -20,7 +20,9 @@ e alternativas descartadas vivem em `docs/adr/`; este arquivo é a visão consol
 - **Docker Compose** com limites de cgroups nativos (cpuset, memory, pids-limit) para
   broker e atacante ([[ADR-0004]]). `docker compose up` sozinho sobe toda a topologia,
   incluindo `nestjs-api`/`nextjs-web` (Dockerfile próprio) e a geração automática dos
-  certificados mTLS ([[ADR-0008]]).
+  certificados mTLS ([[ADR-0008]]). As imagens de `nestjs-api`/`nextjs-web`/`attacker`/`mock-sensor`
+  vêm pré-buildadas do registry (Docker Hub, `devvictorlis/stressbed-*`), com `build:`
+  local como opção ([[ADR-0009]]).
 - **ESP32 (C++/Arduino ou PlatformIO)**: publisher legítimo, único firmware
   (`sensor`). Toda a carga maliciosa de Track A/B vem do container `attacker`, não do
   hardware.
