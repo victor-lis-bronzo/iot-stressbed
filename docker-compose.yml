@@ -186,6 +186,7 @@ services:
   # tópico do sensor legítimo: aceito no broker plain, rejeitado no secure (mTLS).
   # Ver attacker/README.md e attacker/python/injector.py.
   attacker:
+    image: devvictorlis/stressbed-attacker:latest
     build:
       context: ./attacker
     container_name: attacker
@@ -274,6 +275,7 @@ services:
   #   docker compose --profile dev-tools down mock-sensor
   mock-sensor:
     profiles: ["dev-tools"]
+    image: devvictorlis/stressbed-mock-sensor:latest
     build:
       context: ./scripts
       dockerfile: Dockerfile.mock-sensor
@@ -317,6 +319,7 @@ services:
   # start:dev` no host. Certificado de cliente mTLS vem do mesmo volume
   # gerado pelo serviço `certs`.
   nestjs-api:
+    image: devvictorlis/stressbed-api:latest
     build:
       context: .
       dockerfile: apps/api/Dockerfile
@@ -399,6 +402,7 @@ services:
   # NAVEGADOR do usuário alcança (porta publicada no host), não o hostname
   # interno da rede Docker.
   nextjs-web:
+    image: devvictorlis/stressbed-web:latest
     build:
       context: .
       dockerfile: apps/web/Dockerfile
