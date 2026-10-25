@@ -192,8 +192,9 @@ services:
     container_name: attacker
     hostname: attacker
 
-    # Sem restart: se o injetor sair (inclusive exit 1 no secure, que é o achado
-    # esperado), o container não deve reviver sozinho e mascarar o resultado.
+    # Sem restart: se o injetor sair, o container não deve reviver sozinho e
+    # mascarar o resultado. Atenção ao exit code: no secure, exit 0 é o resultado
+    # CORRETO (a injeção foi rejeitada) — ver docs/track-a-guide.md.
     restart: "no"
 
     # Sem `ports`: é sempre cliente MQTT, nunca servidor — não expõe nada.
@@ -614,9 +615,17 @@ services:
 
     restart: unless-stopped
 
-    # O processo roda como `telegraf`, mas precisa de um grupo com leitura no
-    # socket do Docker (TELEGRAF_DOCKER_GID no .env).
-    user: "telegraf:${TELEGRAF_DOCKER_GID:-0}"
+    # Root DENTRO do container (o socket é montado read-only, então isto não dá
+    # escrita no daemon): é a única forma de ler o socket sem o operador
+    # descobrir o GID do grupo `docker`, que varia por host (127 neste Ubuntu,
+    # 0 no Docker Desktop) — ADR-0010. O `entrypoint` é sobrescrito porque o
+    # /entrypoint.sh da imagem faz `su-exec telegraf` e desfaria o root (o
+    # `setcap` dele só serve a ICMP/portas privilegiadas, que não usamos).
+    # Modo menos privilegiado:
+    #   TELEGRAF_USER="telegraf:$(stat -c %g /var/run/docker.sock)"
+    user: ${TELEGRAF_USER:-0:0}
+    entrypoint: ["telegraf"]
+    command: ["--config", "/etc/telegraf/telegraf.conf"]
 
     environment:
       TELEGRAF_INTERVAL: ${TELEGRAF_INTERVAL:-5s}
@@ -644,7 +653,9 @@ services:
         condition: service_healthy
 
     healthcheck:
-      test: ["CMD-SHELL", "pgrep telegraf >/dev/null"]
+      # `pgrep` sozinho mentia `healthy` com o socket ilegível e broker_metrics
+      # vazio: o teste tem que cobrir a dependência, não só o processo.
+      test: ["CMD-SHELL", "pgrep telegraf >/dev/null && [ -r /var/run/docker.sock ]"]
       interval: 15s
       timeout: 5s
       retries: 3

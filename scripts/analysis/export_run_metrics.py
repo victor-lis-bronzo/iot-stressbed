@@ -485,10 +485,13 @@ def _pg_connect():
             "psycopg2 não instalado. Rode: pip install -r scripts/requirements.txt"
         ) from exc
 
+    # Defaults = os de laboratório do docker-compose.yml (ADR-0008): a ferramenta
+    # roda no host e tem que funcionar sem `.env`, como o resto do bootstrap.
+    # Exportar a variável continua sobrescrevendo.
     host = os.environ.get("POSTGRES_HOST", "localhost")
     port = int(os.environ.get("POSTGRES_PORT", "5432"))
     user = os.environ.get("POSTGRES_USER", "stressbed")
-    password = os.environ.get("POSTGRES_PASSWORD", "")
+    password = os.environ.get("POSTGRES_PASSWORD", "stressbed")
     dbname = os.environ.get("POSTGRES_DB", "stressbed")
     try:
         return psycopg2.connect(
@@ -685,7 +688,8 @@ def _influx_connect():
         ) from exc
 
     url = os.environ.get("INFLUXDB_URL", "http://localhost:8086")
-    token = os.environ.get("INFLUXDB_TOKEN", "")
+    # Mesmo default de laboratório do docker-compose.yml (ver _pg_connect).
+    token = os.environ.get("INFLUXDB_TOKEN", "dev-only-influx-token")
     org = os.environ.get("INFLUXDB_ORG", "stressbed")
     if not token:
         raise AnalysisError("INFLUXDB_TOKEN não definido no ambiente")

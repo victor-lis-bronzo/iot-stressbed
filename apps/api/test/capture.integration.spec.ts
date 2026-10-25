@@ -32,6 +32,11 @@ function loadEnv(): Record<string, string> {
 
 const env = loadEnv();
 
+// Mesmos defaults de laboratório do docker-compose.yml (ADR-0008): o teste roda
+// no host e tem que funcionar sem `.env`, como as portas logo abaixo.
+const SECURE_USERNAME = env.MQTT_SECURE_USERNAME ?? 'stressbed';
+const SECURE_PASSWORD = env.MQTT_SECURE_PASSWORD ?? 'stressbed';
+
 function waitUntil(
   condition: () => boolean,
   timeoutMs = 8000,
@@ -92,8 +97,8 @@ describe('Mosquitto adapter integration (real brokers via docker compose)', () =
       host: 'localhost',
       port: Number(env.MQTT_SECURE_PORT ?? 8883),
       tls: true,
-      username: env.MQTT_SECURE_USERNAME,
-      password: env.MQTT_SECURE_PASSWORD,
+      username: SECURE_USERNAME,
+      password: SECURE_PASSWORD,
       ...tlsOpts,
     });
     await adapter.connect();
@@ -102,8 +107,8 @@ describe('Mosquitto adapter integration (real brokers via docker compose)', () =
     const topic = 'sensors/itest-secure/telemetry';
     const payload = JSON.stringify({ temperature: 26, humidity: 56 });
     const pub = await mqtt.connectAsync(`mqtts://localhost:${env.MQTT_SECURE_PORT ?? 8883}`, {
-      username: env.MQTT_SECURE_USERNAME,
-      password: env.MQTT_SECURE_PASSWORD,
+      username: SECURE_USERNAME,
+      password: SECURE_PASSWORD,
       ca: tlsOpts.ca,
       cert: readFileSync(resolve(CERT_DIR, 'client-test.crt')),
       key: readFileSync(resolve(CERT_DIR, 'client-test.key')),
@@ -122,8 +127,8 @@ describe('Mosquitto adapter integration (real brokers via docker compose)', () =
       mqtt.connectAsync(
         `mqtts://localhost:${env.MQTT_SECURE_PORT ?? 8883}`,
         {
-          username: env.MQTT_SECURE_USERNAME,
-          password: env.MQTT_SECURE_PASSWORD,
+          username: SECURE_USERNAME,
+          password: SECURE_PASSWORD,
           ca: readFileSync(resolve(CERT_DIR, 'ca.crt')),
           rejectUnauthorized: true,
           connectTimeout: 5000,
@@ -154,8 +159,8 @@ describe('Dual capture integration (plain and secure at the same time)', () => {
             host: 'localhost',
             port: securePort,
             tls: true,
-            username: env.MQTT_SECURE_USERNAME,
-            password: env.MQTT_SECURE_PASSWORD,
+            username: SECURE_USERNAME,
+            password: SECURE_PASSWORD,
             ...secureCerts,
           });
     return new CaptureService(
@@ -181,8 +186,8 @@ describe('Dual capture integration (plain and secure at the same time)', () => {
 
     const plainPub = await mqtt.connectAsync(`mqtt://localhost:${plainPort}`);
     const securePub = await mqtt.connectAsync(`mqtts://localhost:${securePort}`, {
-      username: env.MQTT_SECURE_USERNAME,
-      password: env.MQTT_SECURE_PASSWORD,
+      username: SECURE_USERNAME,
+      password: SECURE_PASSWORD,
       ca: secureCerts.ca,
       cert: readFileSync(resolve(CERT_DIR, 'client-test.crt')),
       key: readFileSync(resolve(CERT_DIR, 'client-test.key')),

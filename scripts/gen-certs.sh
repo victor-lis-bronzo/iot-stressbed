@@ -137,8 +137,9 @@ openssl req -new -x509 \
 
 log "gerando chave e CSR do servidor (CN=${SERVER_CN})…"
 openssl genrsa -out "${CERT_DIR}/server.key" "${KEY_BITS}" 2>/dev/null
-# 0640 e não 0600: em bind mount Linux o container roda como uid 1883 e precisa
-# ler a chave. O segredo que importa é ca.key (0600, nunca entra em container).
+# 0640 e não 0600: o dono do arquivo e o grupo precisam ler a chave (o chown no
+# fim do script devolve a posse ao pesquisador). O segredo que importa é
+# ca.key (0600, nunca entra em container).
 chmod "${SERVER_KEY_MODE:-0640}" "${CERT_DIR}/server.key"
 
 cat > "${TMP_DIR}/server.cnf" <<EOF
@@ -243,6 +244,18 @@ done
 for f in "${EXPECTED[@]}"; do
   [[ -s "${CERT_DIR}/${f}" ]] || fail "arquivo esperado ausente ou vazio: ${CERT_DIR}/${f}"
 done
+
+# No container `certs` este script roda como root e grava num bind mount: sem
+# isto os arquivos ficam root-owned no HOST e o pesquisador não lê as chaves
+# (teste de integração, cópia para o ESP32). O dono correto é o do próprio
+# diretório, que vem do host. Fora do container (uid != 0) não há o que fazer.
+if [[ "$(id -u)" == "0" ]]; then
+  cert_owner="$(stat -c '%u:%g' "${CERT_DIR}")"
+  if [[ "${cert_owner}" != "0:0" ]]; then
+    chown "${cert_owner}" "${CERT_DIR}"/*
+    log "posse dos arquivos devolvida a ${cert_owner} (dono de ${CERT_DIR})."
+  fi
+fi
 
 log "OK. Arquivos em ${CERT_DIR}:"
 ls -l "${CERT_DIR}"
