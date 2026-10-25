@@ -344,6 +344,12 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-stressbed}
       POSTGRES_DB: ${POSTGRES_DB:-stressbed}
       INFLUXDB_URL: http://influxdb:8086
+      # Sem estas três o api grava e consulta o InfluxDB com token vazio
+      # (default do código) e recebe `unauthorized`: nenhuma telemetria chega
+      # ao bucket. Mesmos defaults de influxdb/grafana/telegraf.
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN:-dev-only-influx-token}
+      INFLUXDB_ORG: ${INFLUXDB_ORG:-stressbed}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-stressbed}
       CAPTURE_TOPIC: "#"
       CAPTURE_ENABLED: "true"
       CAPTURE_PLAIN_MQTT_HOST: mosquitto-plain
