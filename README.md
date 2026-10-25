@@ -88,7 +88,10 @@ docker compose up
 ```
 
 Um único `docker compose up` sobe toda a topologia, incluindo geração
-automática de certificados mTLS. Principais portas expostas:
+automática de certificados mTLS. No laboratório, `docker compose up` apenas
+**baixa** as imagens prontas do Docker Hub (`devvictorlis/stressbed-*`), sem buildar;
+para atualizar, `docker compose pull`. Para buildar localmente, `docker compose up --build`
+(ver [ADR-0009](docs/adr/0009-prebuilt-images-registry.md)). Principais portas expostas:
 
 - `1883` — Mosquitto plain (MQTT, sem TLS)
 - `8883` — Mosquitto secure (MQTTS, mTLS)
