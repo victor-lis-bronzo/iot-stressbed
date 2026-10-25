@@ -48,3 +48,25 @@ GitHub Actions (`.github/workflows/publish-images.yml`, disparado em push na
   continua manual; só muda a origem da imagem.
 - **Não contraria o ADR-0008**: reforça o bootstrap único, apenas trocando build
   local por pull de imagem pronta; `.env` continua opcional.
+
+## Atualização: manutenção do pipeline (avisos de Node 20, pip e npm)
+O primeiro run do workflow passou, mas o log trouxe avisos. Tratamento:
+- **Actions em Node 24:** `actions/checkout@v7`, `docker/setup-buildx-action@v4`,
+  `docker/login-action@v4` e `docker/build-push-action@v7` (as versões anteriores
+  usavam Node 20, hoje forçado para Node 24 pelo GitHub). As release notes dos
+  majors novos só removem envs deprecated que o workflow não usa.
+- **pip como root:** `attacker/Dockerfile` e `scripts/Dockerfile.mock-sensor`
+  definem `PIP_ROOT_USER_ACTION=ignore` e `PIP_DISABLE_PIP_VERSION_CHECK=1`. Em
+  container descartável o root é intencional, então não há venv nem usuário.
+- **bcrypt 5 → 6 (`apps/api`):** a v5 puxava `@mapbox/node-pre-gyp` e, com ele,
+  `npmlog`, `gauge`, `are-we-there-yet`, `rimraf@3` e `tar@6`, todos deprecated. A
+  v6 usa `node-gyp-build` com prebuilds, o que também dispensou o
+  `apk add python3 make g++` do `apps/api/Dockerfile` (o bcrypt carrega no
+  `node:22-alpine` sem compilar). Hashes `$2b$` gerados pela v5 continuam
+  válidos na v6 (verificado), então usuários já semeados seguem logando. A API
+  usada (`hash`/`compare`) não mudou.
+- **Avisos que permanecem, de propósito:** `glob@10.5.0` e `uuid@9.0.1` no `api`
+  (via `typeorm`/`@nestjs/typeorm`) e `eslint`/`glob`/`whatwg-encoding` no `web`
+  (só dev, via `jest-environment-jsdom`, fora da imagem final). Não têm correção
+  do nosso lado. Não usamos `--loglevel=error`: o aviso continua útil como alerta
+  quando uma dependência nova trouxer um problema real.
