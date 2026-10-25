@@ -25,6 +25,9 @@ COPY --from=build /app/public ./public
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
 EXPOSE 3002
+# /login e não /: a raiz responde 307 para http://localhost:3002/login (NEXTAUTH_URL)
+# e o wget segue o redirect; no alpine localhost resolve para ::1, onde o Next
+# (0.0.0.0, só IPv4) não escuta.
 HEALTHCHECK --interval=10s --timeout=5s --retries=5 --start-period=15s \
-  CMD wget -qO- http://127.0.0.1:3002/ >/dev/null 2>&1 || exit 1
+  CMD wget -qO- http://127.0.0.1:3002/login >/dev/null 2>&1 || exit 1
 CMD ["node", "server.js"]
