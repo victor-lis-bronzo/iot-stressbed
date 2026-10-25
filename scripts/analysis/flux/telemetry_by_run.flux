@@ -50,9 +50,9 @@
 //            contagem inteira de pontos. Se houver mais de uma série (mais de
 //            uma combinação de tags remanescente), `count()` devolve uma linha
 //            por série — o adapter TS soma todas; o Python deve fazer o mesmo.
-//   Bloco B: 1 linha (ou 0, se não houver pontos), coluna `_time` com o
-//            timestamp do ponto mais antigo (RFC3339). As demais colunas do
-//            ponto (`_value`, tags) também vêm juntas; use apenas `_time`.
+//   Bloco B: 1 linha (ou 0, se não houver pontos), com SÓ a coluna `_time`
+//            (timestamp do ponto mais antigo, RFC3339). O `keep` descarta
+//            `_value` (o payload `raw`, que pode ter 1 MB) e as tags.
 //
 // -----------------------------------------------------------------------------
 // !! NOTA DE SEGURANÇA — VALIDAR run_id ANTES DE SUBSTITUIR !!
@@ -110,4 +110,8 @@ from(bucket: "__BUCKET__")
 //     // sort ascendente por tempo + limit(1) => ponto mais antigo da run.
 //     |> sort(columns: ["_time"])
 //     |> limit(n: 1)
+//     // Só o `_time` interessa. Sem este keep a linha traz o `raw` inteiro, e o
+//     // payload de 1 MB de uma run `malformed-payload` estoura o limite de campo
+//     // do parser CSV do cliente ("field larger than field limit").
+//     |> keep(columns: ["_time"])
 // <<< END BLOCK: first_point_timestamp

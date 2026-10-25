@@ -34,6 +34,9 @@
 # Este script apenas repassa o exit code do processo disparado, sem
 # reinterpretar sua semântica.
 #
+# Os args extras também são gravados como `params` da run (ver params_json
+# abaixo): é o que distingue, na tabela comparativa, 1000 de 200 conexões.
+#
 # Credenciais da API: exporte antes de rodar (não há credencial hardcoded aqui).
 # Use as mesmas do admin semeado pelo backend (AUTH_ADMIN_EMAIL/PASSWORD no .env):
 #   export RUN_EXPERIMENT_EMAIL="admin@stressbed.com"
@@ -127,11 +130,57 @@ echo "==> autenticado." >&2
 
 # --- Start run ------------------------------------------------------------ #
 
+# Os args extras do ataque viram `params` da run (objeto {flag: valor}). Sem isso
+# o pareamento plain/secure de scripts/analysis/build_comparison_table.py (chave
+# = attack_type + params) tratava 1000 e 200 conexões como o MESMO cenário.
+# Objeto e não array: `--rate 200 --duration-seconds 30` e a ordem inversa são o
+# mesmo cenário, e a canonicalização do exportador ordena as chaves. Montado em
+# python3 (já requisito do projeto) para escapar aspas corretamente sem jq.
+params_json() {
+  python3 - "$@" <<'PY'
+import json, sys
+
+args = sys.argv[1:]
+params = {}
+i = 0
+while i < len(args):
+    arg = args[i]
+    if not arg.startswith("--"):  # posicional solto: guarda pela posição
+        params[f"arg{i}"] = arg
+        i += 1
+        continue
+    key, has_eq, raw = arg[2:].partition("=")
+    if has_eq:  # --flag=valor
+        i += 1
+    elif i + 1 < len(args) and not args[i + 1].startswith("--"):
+        raw = args[i + 1]
+        i += 2
+    else:  # --flag sem valor (booleana)
+        params[key] = True
+        i += 1
+        continue
+    try:
+        params[key] = json.loads(raw) if raw.lstrip("-")[:1].isdigit() else raw
+    except ValueError:
+        params[key] = raw
+print(json.dumps(params, separators=(",", ":"), ensure_ascii=False))
+PY
+}
+
+START_BODY="{\"mode\":\"${MODE}\",\"attackType\":\"${TRACK}\"}"
+if [[ $# -gt 0 ]]; then
+  if PARAMS_JSON="$(params_json "$@")"; then
+    START_BODY="{\"mode\":\"${MODE}\",\"attackType\":\"${TRACK}\",\"params\":${PARAMS_JSON}}"
+  else
+    echo "aviso: não consegui registrar os params da run (python3 ausente?); o pareamento plain/secure não os distinguirá." >&2
+  fi
+fi
+
 echo "==> iniciando run (mode=${MODE}, attackType=${TRACK}) ..." >&2
 START_RESPONSE="$(curl -sS -X POST "${API_BASE_URL}/experiments/runs/start" \
   -H "Authorization: Bearer ${TOKEN}" \
   -H 'Content-Type: application/json' \
-  -d "{\"mode\":\"${MODE}\",\"attackType\":\"${TRACK}\"}")"
+  -d "${START_BODY}")"
 echo "==> run iniciada: ${START_RESPONSE}" >&2
 
 # Mesmo recorte por regex do access_token acima: o corpo é um objeto plano
