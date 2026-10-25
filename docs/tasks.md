@@ -386,3 +386,13 @@ maior que isso na prática, quebrar mais). "Pronto quando" é sempre verificáve
 - Teste: manual de ponta a ponta — `mosquitto_pub` no broker plain, esperar o
   flush de 60s do cliente InfluxDB e consultar o measurement `telemetry`;
   `GET /metrics/runs` autenticado retorna 200.
+
+### Gravar telemetria com timestamp monotônico em nanossegundos
+- Pronto quando: um flood grava no InfluxDB tantos pontos `telemetry` quantas
+  mensagens o broker entregou (sem sobrescrita por colisão de milissegundo), e o
+  gerador de timestamp tem teste unitário. Ver issue #27 e [[ADR-0011]].
+- Depende de: Corrigir token do InfluxDB no api e healthcheck do web no compose.
+- Tamanho: P.
+- Teste: `npm test` em `apps/api` (cobre `createMonotonicNanos`); medição de ponta
+  a ponta — rajada de 1000 mensagens e `message-flood` a 467 e ~3000 msg/s, esperar
+  o flush de 60s e comparar enviados com gravados (esperado: iguais).
