@@ -3,9 +3,7 @@
 FROM node:22-alpine AS deps
 WORKDIR /app
 COPY apps/api/package.json apps/api/package-lock.json* ./
-# python3/make/g++: bcrypt precisa compilar binário nativo no musl do alpine.
-RUN apk add --no-cache python3 make g++ \
-    && npm ci
+RUN npm ci
 
 FROM node:22-alpine AS build
 WORKDIR /app
@@ -18,9 +16,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV API_PORT=3000
 COPY apps/api/package.json apps/api/package-lock.json* ./
-RUN apk add --no-cache python3 make g++ \
-    && npm ci --omit=dev \
-    && apk del python3 make g++
+RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist
 EXPOSE 3000
 HEALTHCHECK --interval=10s --timeout=5s --retries=5 --start-period=15s \

@@ -364,3 +364,14 @@ maior que isso na prática, quebrar mais). "Pronto quando" é sempre verificáve
 - Tamanho: P.
 - Teste: máquina limpa: `docker compose pull && docker compose up -d` sobe tudo
   `healthy` sem buildar.
+
+### Remover avisos de Node 20/pip/npm do pipeline de imagens
+- Pronto quando: o run de `publish-images.yml` não emite o aviso de Node 20
+  deprecado; os builds de `attacker` e `mock-sensor` não emitem o aviso do pip
+  como root; o `npm ci --omit=dev` do `api` só avisa de `glob@10.5.0` e
+  `uuid@9.0.1` (typeorm), sem a cadeia do `node-pre-gyp`. Detalhes no ADR-0009.
+- Depende de: Workflow de publicação no Docker Hub.
+- Tamanho: P.
+- Teste: `npm test` em `apps/api` (cobre `bcrypt.hash`/`compare`); build local
+  do `api` sem toolchain e `require('bcrypt')` no container; após o merge, conferir
+  o log do run do Actions e as 4 imagens `success` no Docker Hub.
