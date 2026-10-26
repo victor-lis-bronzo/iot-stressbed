@@ -1,0 +1,138 @@
+name: Smoke test
+
+# Smoke test de integração do testbed (issue #32): sobe a stack INTEIRA via
+# docker compose SEM nenhum `.env` (bootstrap zero-config, ADR-0008), espera os
+# healthchecks, publica uma rajada de mensagens MQTT no broker plain e então
+# valida, via consultas ao InfluxDB, que:
+#   (a) `broker_metrics` contém AMBOS os brokers (plain e secure);
+#   (b) a contagem de pontos em `telemetry` é igual ao número de mensagens
+#       publicadas (nenhuma subcontagem).
+# Pega a classe de regressão dos PRs #24/#26/#28 (token do influx ausente,
+# healthcheck do web, socket do telegraf, telemetria subcontada).
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+
+    # Estes envs são lidos pela interpolação do `docker compose` — NÃO criamos
+    # `.env` (o objetivo do teste é justamente provar o bootstrap zero-config).
+    env:
+      # Runners do GitHub têm poucos núcleos: o compose fixa cpuset assumindo
+      # >=6 cores (defaults 0,1 / 2 / 3 / 4,5). Os núcleos 2-5 não existem aqui e
+      # os containers falhariam ao iniciar. Reescrevemos para núcleos que sempre
+      # existem (0 e 1).
+      STACK_CPUSET: "0,1"
+      BROKER_PLAIN_CPUSET: "0"
+      BROKER_SECURE_CPUSET: "1"
+      ATTACKER_CPUSET: "0,1"
+      # Faz a nestjs-api descarregar a telemetria a cada 2s (em vez do default de
+      # 60s), para o assert não precisar esperar um minuto pelo flush.
+      INFLUX_FLUSH_INTERVAL_MS: "2000"
+
+    steps:
+      - uses: actions/checkout@v7
+
+      # Sobe tudo buildando a partir do código da branch (não confiamos em pulls
+      # do registry casarem com o commit). `--wait` bloqueia nos healthchecks.
+      - name: Subir a stack (zero-config)
+        run: docker compose up -d --build --wait --wait-timeout 300
+
+      # Se a subida falhar, despeja estado e logs antes de quebrar o job.
+      - name: Diagnóstico em caso de falha na subida
+        if: failure()
+        run: |
+          set -uo pipefail
+          echo "===== docker compose ps ====="
+          docker compose ps
+          echo "===== docker compose logs (últimas 300 linhas) ====="
+          docker compose logs --no-color | tail -300
+
+      # Dá um respiro para as assinaturas de captura (tópico `#`) ficarem 100%
+      # ativas antes de publicarmos.
+      - name: Aguardar estabilização das assinaturas
+        run: sleep 5
+
+      # Publica N mensagens em UMA única conexão com o broker plain, usando o
+      # modo linha (-l) do mosquitto_pub dentro do próprio container do broker.
+      - name: Publicar rajada MQTT no broker plain
+        id: burst
+        run: |
+          set -euo pipefail
+          SID="smoke-$(date +%s)"
+          N=100
+          echo "sid=$SID" >> "$GITHUB_OUTPUT"
+          echo "n=$N" >> "$GITHUB_OUTPUT"
+          echo "Publicando $N mensagens em sensors/$SID/telemetry (broker plain)"
+          docker compose exec -T mosquitto-plain sh -c \
+            "seq 1 $N | mosquitto_pub -h 127.0.0.1 -p 1883 -t sensors/$SID/telemetry -q 1 -l"
+
+      # Espera o flush: ~2s do flush da api + ~5s do intervalo do telegraf, com
+      # folga.
+      - name: Aguardar flush da telemetria e do telegraf
+        run: sleep 8
+
+      # (b) telemetry: a contagem de pontos do nosso sensor único no broker plain
+      # tem que ser exatamente N (cada mensagem = 1 ponto distinto).
+      - name: Assert telemetry count == N
+        run: |
+          set -euo pipefail
+          SID="${{ steps.burst.outputs.sid }}"
+          N="${{ steps.burst.outputs.n }}"
+
+          FLUX="from(bucket:\"stressbed\") |> range(start:-1h) |> filter(fn:(r)=> r._measurement==\"telemetry\" and r.sensor_id==\"${SID}\" and r.broker==\"plain\" and r._field==\"raw\") |> count() |> keep(columns:[\"_value\"])"
+
+          RAW="$(docker compose exec -T influxdb influx query --org stressbed --token dev-only-influx-token --raw "$FLUX")"
+          echo "===== saída bruta da query (telemetry count) ====="
+          echo "$RAW"
+
+          # CSV anotado: ignora anotações (#...) e cabeçalho; SOMA o inteiro da
+          # última coluna (_value) de cada linha de dados. Somar (em vez de pegar
+          # a última) evita subcontagem caso o count() volte em mais de uma tabela
+          # (tags distintas) — aqui esperamos uma só, mas a soma é robusta.
+          COUNT="$(printf '%s\n' "$RAW" | tr -d '\r' | awk -F, '!/^#/ && $NF ~ /^[0-9]+$/ { s += $NF } END { print s+0 }')"
+          echo "telemetry count=$COUNT esperado=$N"
+
+          if [ "$COUNT" != "$N" ]; then
+            echo "FALHA: contagem de telemetry ($COUNT) != mensagens publicadas ($N)"
+            echo "SID=$SID"
+            echo "$RAW"
+            exit 1
+          fi
+          echo "OK: telemetry count == $N"
+
+      # (a) broker_metrics: ambos os brokers (plain e secure) têm que aparecer —
+      # só aparecem se os dois containers de broker estiverem saudáveis.
+      - name: Assert ambos os brokers em broker_metrics
+        run: |
+          set -euo pipefail
+          FLUX="from(bucket:\"stressbed\") |> range(start:-5m) |> filter(fn:(r)=> r._measurement==\"broker_metrics\") |> keep(columns:[\"broker\"]) |> group() |> distinct(column:\"broker\")"
+
+          RAW="$(docker compose exec -T influxdb influx query --org stressbed --token dev-only-influx-token --raw "$FLUX")"
+          echo "===== saída bruta da query (brokers distintos) ====="
+          echo "$RAW"
+
+          # Coleta os valores da última coluna (_value) das linhas de dados.
+          BROKERS="$(printf '%s\n' "$RAW" | tr -d '\r' | awk -F, '!/^#/ && NF>1 { print $NF }')"
+          echo "brokers encontrados: $(echo "$BROKERS" | tr '\n' ' ')"
+
+          MISSING=""
+          echo "$BROKERS" | grep -qx "plain"  || MISSING="$MISSING plain"
+          echo "$BROKERS" | grep -qx "secure" || MISSING="$MISSING secure"
+
+          if [ -n "$MISSING" ]; then
+            echo "FALHA: broker(s) ausente(s) em broker_metrics:$MISSING"
+            echo "$RAW"
+            exit 1
+          fi
+          echo "OK: broker_metrics contém plain e secure"
+
+      # Sempre derruba a stack e remove volumes, mesmo se algum assert falhar.
+      - name: Teardown
+        if: always()
+        run: docker compose down -v
