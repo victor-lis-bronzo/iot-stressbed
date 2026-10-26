@@ -1,7 +1,12 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useApi } from './useApi';
-import { useActiveRun, useStopRun } from './useExperimentRuns';
+import {
+  describeLaunchError,
+  useActiveRun,
+  useLaunchRun,
+  useStopRun,
+} from './useExperimentRuns';
 
 jest.mock('./useApi', () => ({
   useApi: jest.fn(),
@@ -60,5 +65,57 @@ describe('useExperimentRuns', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(api.post).toHaveBeenCalledWith('/experiments/runs/stop');
+  });
+
+  it('launches an attack through /experiments/runs/launch and returns the created run', async () => {
+    const run = { id: 'run-1', mode: 'plain', attackType: 'connection-flood' };
+    api.post.mockResolvedValue({ data: run });
+
+    const { result } = renderHook(() => useLaunchRun(), { wrapper });
+    result.current.mutate({
+      mode: 'plain',
+      attackType: 'connection-flood',
+      params: { connections: 200 },
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(api.post).toHaveBeenCalledWith('/experiments/runs/launch', {
+      mode: 'plain',
+      attackType: 'connection-flood',
+      params: { connections: 200 },
+    });
+    expect(result.current.data).toEqual(run);
+  });
+
+  it('surfaces a failed launch as an error', async () => {
+    api.post.mockRejectedValue({ response: { status: 409 } });
+
+    const { result } = renderHook(() => useLaunchRun(), { wrapper });
+    result.current.mutate({ mode: 'plain', attackType: 'injection' });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+  });
+});
+
+describe('describeLaunchError', () => {
+  it('explains a 409 as an already active run', () => {
+    expect(describeLaunchError({ response: { status: 409 } })).toMatch(/já existe uma run ativa/i);
+  });
+
+  it('uses the backend message for validation errors, joining arrays', () => {
+    expect(
+      describeLaunchError({ response: { status: 400, data: { message: 'parâmetro inválido: X' } } }),
+    ).toBe('parâmetro inválido: X');
+    expect(
+      describeLaunchError({ response: { status: 400, data: { message: ['a', 'b'] } } }),
+    ).toBe('a; b');
+  });
+
+  it('falls back to a generic message for network errors and unknown shapes', () => {
+    expect(describeLaunchError(new Error('Network Error'))).toMatch(/não foi possível disparar/i);
+    expect(describeLaunchError(undefined)).toMatch(/não foi possível disparar/i);
+    expect(describeLaunchError({ response: { status: 500, data: {} } })).toMatch(
+      /não foi possível disparar/i,
+    );
   });
 });
