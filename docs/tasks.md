@@ -457,3 +457,17 @@ maior que isso na prática, quebrar mais). "Pronto quando" é sempre verificáve
   script com o `CreatedAt` do Telegraf idêntico antes e depois,
   `export_run_metrics.py --all` com CPU/memória das runs de Track B preenchidos, e
   `export_grafana.sh` renderizando a janela da run.
+
+### Botão "Disparar" no dashboard (Track A e Track B)
+- Pronto quando: em `/ataques` e `/injecao`, escolher alvo e parâmetros e clicar em
+  Disparar executa o ataque de ponta a ponta, sem terminal; a tela mostra a run ativa e,
+  ao terminar, o resultado e o histórico; o botão fica desabilitado com uma run ativa e
+  um 409/400 do api aparece como alerta; o comando equivalente continua visível. Ver
+  [[ADR-0012]].
+- Depende de: Disparar ataques a partir do api (runner no attacker + endpoint `/launch`);
+  Atribuir as métricas do broker à run pela janela de tempo e simplificar o script.
+- Tamanho: M.
+- Teste: jest de `apps/web` (`AttackForm`, `InjectionForm`, `useLaunchRun`,
+  `describeLaunchError`, `attackParams`); manual — as duas telas servem os botões após o
+  login, o preflight de CORS do api responde 204, e um disparo pelo navegador termina com
+  resultado e histórico preenchidos.

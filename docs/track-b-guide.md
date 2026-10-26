@@ -126,14 +126,18 @@ Flags de `malformed_payload.py` (via `args_malformed_payload.py`):
 
 ## Passo 4 — Console de ataque na UI
 
-`http://localhost:3002/ataques` monta visualmente o mesmo comando (equivalente
-ao `run-experiment.sh`), mostra a run ativa e o histórico de execuções. O
-disparo real continua sempre via CLI/`run-experiment.sh` — a tela reflete o
-que rodou, não substitui o comando. Como a própria UI descreve:
+`http://localhost:3002/ataques` dispara o ataque por um botão, sem terminal: escolha o
+ataque (`connection-flood`, `message-flood` ou `malformed-payload`), o alvo
+(`plain`/`secure`), os parâmetros opcionais e clique em **Disparar ataque**. O backend
+cria a run, executa o ataque no container `attacker`, registra o resultado e encerra a
+run ([[ADR-0012]]); a tela mostra a run ativa (com o botão **Parar run**), o resultado
+mais recente e o histórico.
 
-> "Track B — disponibilidade. O disparo continua via CLI
-> (`scripts/run-experiment.sh`); esta tela monta o comando, acompanha a run
-> ativa e mostra o resultado/histórico assim que o ataque termina."
+Os campos em branco usam os defaults dos scripts. Abaixo do botão, a tela mostra o
+**comando equivalente** do `run-experiment.sh` (com "Copiar") para quem prefere o
+terminal ou quer reproduzir a run — botão e terminal produzem runs idênticas, com os
+mesmos `params`. Só uma run roda por vez ([[ADR-0006]]): com uma ativa, o botão fica
+desabilitado.
 
 ## Passo 5 — Acompanhar métricas no Grafana
 

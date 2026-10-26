@@ -38,11 +38,16 @@ trafegaram na rede — sem cifra, sem parse, sem transformação. Isso evidencia
 na prática, que qualquer subscriber sem autorização consegue ler a telemetria
 em claro, sem precisar de nenhuma credencial.
 
-## Passo 3 — rodar injeção via `run-experiment.sh`
+## Passo 3 — rodar a injeção (pelo dashboard ou por `run-experiment.sh`)
 
-O script `scripts/run-experiment.sh` orquestra o fluxo completo: login →
-start da run → disparo do attacker → stop da run (via trap `EXIT`, mesmo se o
-attacker falhar) → registro do resultado como KPI.
+**Pelo dashboard:** em `http://localhost:3002/injecao`, escolha o alvo (`plain` ou
+`secure`), os parâmetros opcionais `--count`/`--interval` e clique em **Disparar
+injeção**. Não precisa de terminal nem de credenciais exportadas.
+
+**Pelo terminal:** o script `scripts/run-experiment.sh` faz o mesmo. Os dois caminhos
+chamam o mesmo endpoint do api (`POST /experiments/runs/launch`, [[ADR-0012]]), que
+orquestra o fluxo completo: start da run → ataque no `attacker` → registro do
+resultado como KPI → stop da run (sempre, mesmo se o ataque falhar).
 
 ```bash
 export RUN_EXPERIMENT_EMAIL="admin@stressbed.com"
@@ -90,9 +95,9 @@ comportamento do script — pode ser ignorada.
 
 ## Passo 4 — ver o resultado na tela de injeção
 
-Acesse `http://localhost:3002/injecao`.
+A mesma tela `http://localhost:3002/injecao` (onde fica o botão) mostra o efeito.
 
-A tela distingue visualmente as mensagens forjadas (`source=injected`) das
+Ela distingue visualmente as mensagens forjadas (`source=injected`) das
 mensagens legítimas de telemetria.
 
 ## Passo 5 (opcional/avançado) — captura de pacotes e análise de entropia
