@@ -31,6 +31,43 @@ export function useActiveRun() {
   });
 }
 
+export interface LaunchRunInput {
+  mode: 'plain' | 'secure';
+  attackType: 'injection' | 'connection-flood' | 'message-flood' | 'malformed-payload';
+  params?: Record<string, unknown>;
+}
+
+/**
+ * Dispara um ataque: o api cria a run, manda o ataque ao container `attacker`,
+ * registra o KPI e encerra a run, tudo em background (ADR-0012). Responde 202 assim
+ * que a run existe; o andamento chega pelo polling de `useActiveRun`.
+ */
+export function useLaunchRun() {
+  const api = useApi();
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: LaunchRunInput) => {
+      const response = await api.post<ExperimentRun>('/experiments/runs/launch', input);
+      return response.data;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ACTIVE_RUN_KEY }),
+  });
+}
+
+/** Mensagem legível para um erro do `/launch` (409 run ativa, 400 params, rede). */
+export function describeLaunchError(error: unknown): string {
+  const response = (error as { response?: { status?: number; data?: { message?: unknown } } })
+    ?.response;
+  if (response?.status === 409) {
+    return 'Já existe uma run ativa. Aguarde ela terminar (ou pare-a acima) antes de disparar outra.';
+  }
+  const message = response?.data?.message;
+  if (Array.isArray(message) && message.length > 0) return message.join('; ');
+  if (typeof message === 'string' && message) return message;
+  return 'Não foi possível disparar o ataque. Verifique se o backend está no ar.';
+}
+
 export function useStopRun() {
   const api = useApi();
   const queryClient = useQueryClient();

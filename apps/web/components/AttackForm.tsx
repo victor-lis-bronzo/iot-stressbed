@@ -2,8 +2,9 @@
 
 import { useState } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
-import { useActiveRun } from '@/hooks/useExperimentRuns';
+import { describeLaunchError, useActiveRun, useLaunchRun } from '@/hooks/useExperimentRuns';
 import type { TrackBAttackType } from '@/hooks/useDosMetrics';
+import { numericParams, toCommand, type AttackParams } from '@/lib/attackParams';
 
 type MalformedMode = 'giant' | 'invalid-utf8' | 'invalid-json' | 'null-bytes';
 
@@ -25,31 +26,31 @@ const INPUT_CLASS =
   'mt-1 block w-full rounded border border-border bg-base focus:border-secured focus:ring-secured sm:text-sm p-2';
 
 /**
- * Monta o comando do run-experiment.sh a partir dos campos preenchidos. Só
- * inclui flags com valor não vazio — os scripts do attacker já têm defaults
- * sensatos para tudo que for omitido (attacker/python/args_*.py).
+ * Monta os `params` do ataque a partir dos campos preenchidos. Só inclui flags com
+ * valor não vazio — os scripts do attacker já têm defaults sensatos para tudo que
+ * for omitido (attacker/python/args_*.py). São os mesmos `params` que o botão envia
+ * ao api e que o comando equivalente mostra.
  */
-function buildCommand(fields: AttackFormFields): string {
-  const flags: string[] = [];
-
+function buildParams(fields: AttackFormFields): AttackParams {
   if (fields.attackType === 'connection-flood') {
-    if (fields.connections) flags.push(`--connections ${fields.connections}`);
-    if (fields.holdSeconds) flags.push(`--hold-seconds ${fields.holdSeconds}`);
-    if (fields.connectTimeout) flags.push(`--connect-timeout ${fields.connectTimeout}`);
-  } else if (fields.attackType === 'message-flood') {
-    if (fields.rate) flags.push(`--rate ${fields.rate}`);
-    if (fields.durationSeconds) flags.push(`--duration-seconds ${fields.durationSeconds}`);
-    if (fields.payloadSizeBytes) flags.push(`--payload-size-bytes ${fields.payloadSizeBytes}`);
-  } else if (fields.attackType === 'malformed-payload') {
-    flags.push(`--mode ${fields.malformedMode}`);
-    if (fields.malformedMode === 'giant' && fields.sizeBytes) {
-      flags.push(`--size-bytes ${fields.sizeBytes}`);
-    }
-    if (fields.count) flags.push(`--count ${fields.count}`);
+    return numericParams([
+      ['connections', fields.connections],
+      ['hold-seconds', fields.holdSeconds],
+      ['connect-timeout', fields.connectTimeout],
+    ]);
   }
-
-  const base = `./scripts/run-experiment.sh ${fields.attackType} ${fields.mode}`;
-  return flags.length > 0 ? `${base} -- ${flags.join(' ')}` : base;
+  if (fields.attackType === 'message-flood') {
+    return numericParams([
+      ['rate', fields.rate],
+      ['duration-seconds', fields.durationSeconds],
+      ['payload-size-bytes', fields.payloadSizeBytes],
+    ]);
+  }
+  return {
+    mode: fields.malformedMode,
+    ...(fields.malformedMode === 'giant' ? numericParams([['size-bytes', fields.sizeBytes]]) : {}),
+    ...numericParams([['count', fields.count]]),
+  };
 }
 
 const DEFAULT_VALUES: AttackFormFields = {
@@ -68,6 +69,7 @@ const DEFAULT_VALUES: AttackFormFields = {
 
 export default function AttackForm() {
   const { data: activeRun } = useActiveRun();
+  const launch = useLaunchRun();
   const [copied, setCopied] = useState(false);
   const { register, control } = useForm<AttackFormFields>({
     defaultValues: DEFAULT_VALUES,
@@ -76,8 +78,12 @@ export default function AttackForm() {
   // useWatch (em vez de form.watch()) porque watch() retorna uma função nova a
   // cada render e não pode ser memoizada pelo React Compiler deste projeto.
   const fields = { ...DEFAULT_VALUES, ...useWatch({ control }) };
-  const command = buildCommand(fields);
+  const params = buildParams(fields);
+  const command = toCommand(fields.attackType, fields.mode, params);
   const disabled = !!activeRun;
+
+  const handleLaunch = () =>
+    launch.mutate({ mode: fields.mode, attackType: fields.attackType, params });
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(command);
@@ -89,10 +95,10 @@ export default function AttackForm() {
     <div className="bg-panel border border-border rounded p-6 mb-8">
       <h3 className="text-lg font-medium text-primary mb-1">Disparar ataque (Track B)</h3>
       <p className="text-sm text-muted mb-4">
-        O disparo continua via CLI — não existe hoje um caminho seguro para o NestJS executar o
-        container <code>attacker</code> sem arriscar duas fontes disputando a mesma run ativa
-        (ADR-0006). Monte o comando abaixo, copie e rode no terminal; esta tela acompanha o
-        resultado automaticamente assim que a run terminar.
+        Escolha o ataque e os parâmetros e clique em <strong>Disparar</strong>: o backend cria a
+        run, executa o ataque no container <code>attacker</code>, registra o resultado e encerra a
+        run (ADR-0012). Esta tela acompanha tudo automaticamente. O comando equivalente do
+        terminal fica logo abaixo.
       </p>
 
       {disabled && (
@@ -261,7 +267,7 @@ export default function AttackForm() {
 
         <div>
           <label htmlFor="command" className="block text-sm font-medium text-primary">
-            Comando
+            Comando equivalente
           </label>
           <div className="mt-1 flex gap-2">
             <input
@@ -273,12 +279,27 @@ export default function AttackForm() {
             <button
               type="button"
               onClick={handleCopy}
-              className="rounded border border-transparent bg-secured px-3 py-1.5 text-sm font-medium text-[#14181F] hover:opacity-90"
+              className="rounded border border-border px-3 py-1.5 text-sm font-medium text-primary hover:bg-base"
             >
               {copied ? 'Copiado!' : 'Copiar'}
             </button>
           </div>
         </div>
+
+        {launch.isError && (
+          <div role="alert" className="p-3 bg-critical/10 text-critical rounded text-sm">
+            {describeLaunchError(launch.error)}
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={handleLaunch}
+          disabled={disabled || launch.isPending}
+          className="rounded border border-transparent bg-critical px-4 py-2 text-sm font-medium text-[#14181F] hover:opacity-90 disabled:opacity-50"
+        >
+          {launch.isPending ? 'Disparando...' : 'Disparar ataque'}
+        </button>
       </form>
     </div>
   );

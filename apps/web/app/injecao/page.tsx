@@ -1,6 +1,8 @@
 'use client';
 
+import ActiveRunBanner from '@/components/ActiveRunBanner';
 import InjectedPayloads from '@/components/InjectedPayloads';
+import InjectionForm from '@/components/InjectionForm';
 
 export default function InjecaoPage() {
   return (
@@ -15,6 +17,8 @@ export default function InjecaoPage() {
         </p>
       </div>
 
+      <ActiveRunBanner />
+      <InjectionForm />
       <InjectedPayloads />
     </div>
   );
