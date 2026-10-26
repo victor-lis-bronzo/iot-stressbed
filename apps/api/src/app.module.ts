@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
+import { AttacksModule } from './attacks/attacks.module';
 import { AuthModule } from './auth/auth.module';
 import { CaptureModule } from './capture/capture.module';
 import { ExperimentsModule } from './experiments/experiments.module';
@@ -35,6 +36,7 @@ import { SensorsModule } from './sensors/sensors.module';
     ExperimentsModule,
     CaptureModule,
     MetricsModule,
+    AttacksModule,
     RealtimeModule,
   ],
   controllers: [AppController],

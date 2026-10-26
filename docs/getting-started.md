@@ -133,7 +133,8 @@ Serviços e portas expostas no host (todas parametrizáveis via `.env`, defaults
 | `grafana` | 3001 (bind `127.0.0.1`) | Dashboards |
 
 `grafana-image-renderer` e `telegraf` não expõem porta (uso interno). O `attacker`
-sobe ocioso — usado via `docker compose exec`, ver os guias de Track A/B. O
+sobe como runner HTTP interno (porta 8080 só na rede do compose, nunca no host) e só
+executa um ataque quando o api manda, ao iniciar uma run — [[ADR-0012]]. O
 `mock-sensor` não sobe por padrão; é opt-in:
 
 ```bash
