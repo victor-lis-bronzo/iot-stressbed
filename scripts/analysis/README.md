@@ -55,7 +55,9 @@ Flags principais (`python scripts/analysis/export_run_metrics.py --help` para
 a lista completa):
 
 - `--run-id <uuid>` ou `--all` — mutuamente exclusivos, um dos dois é
-  obrigatório.
+  obrigatório. Com `--all`, uma run que falha (ex.: erro de query) **não descarta
+  as demais**: o CSV sai com as que deram certo, cada falha é listada em `stderr`
+  (`FALHOU <run_id>: ...`) e o exit code é `1`. Com `--run-id`, o erro aborta.
 - `--recovery-read-margin-seconds` — margem de leitura pós-
   `attack_finished_at` usada na busca pela recuperação do broker (default: 3x
   `TELEGRAF_INTERVAL`, ou 15s se a env var não estiver definida). Parâmetro
@@ -85,6 +87,10 @@ Todos os nomes acima batem com `.env.example` na raiz do repo.
 `out/run_metrics.csv` (ou o caminho passado em `--output`). Convenção de
 nulos: célula vazia = KPI não aplicável àquela run (ex.: KPI de Track B numa
 run de Track A) — nunca `0`. Booleanos saem como `true`/`false` em minúsculas.
+`telemetry_captured_count` vazio significa que **nenhum ponto de telemetria**
+foi gravado para aquela run/broker (ex.: um connection-flood, ou uma injeção
+rejeitada no `secure`), não que o dado falhou. Uma run de duração zero é
+exportada normalmente (a janela de consulta ganha um piso de 1 s).
 `time_to_degradation_ms = null` com `broker_survived = true` é um resultado
 científico válido (o broker resistiu ao ataque), não um erro — o script não
 emite warning nesse caso.
@@ -113,7 +119,9 @@ não conecta em Postgres/InfluxDB.
 `out/comparison_table.csv` e `out/comparison_table.md` (ou dentro do
 `--output-dir` passado). Uma linha por **cenário** — chave
 `(attack_type, params_normalizado)` — pareando a run `plain` com a run
-`secure` mais recente (`started_at`) do mesmo cenário. Cenário sem contraparte
+`secure` mais recente (`started_at`) do mesmo cenário. Os `params` vêm dos
+argumentos passados ao `scripts/run-experiment.sh` (após o `--`), então 1000 e
+200 conexões são cenários distintos. Cenário sem contraparte
 aparece marcado como `plain-only`/`secure-only` em `pairing_status`, nunca é
 descartado. Para cada KPI numérico comparável: `<kpi>_plain`, `<kpi>_secure`,
 `<kpi>_delta` (`secure - plain`) e `<kpi>_changed`; KPIs categóricos só têm

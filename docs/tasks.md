@@ -408,3 +408,15 @@ maior que isso na prática, quebrar mais). "Pronto quando" é sempre verificáve
 - Tamanho: P.
 - Teste: `npm run test:integration` em `apps/api` e
   `export_run_metrics.py --all` com o ambiente vazio.
+
+### Tornar o exportador robusto a runs de borda e gravar params das runs
+- Pronto quando: `export_run_metrics.py --all` exporta uma run de duração zero e uma
+  de payload gigante (1 MB) sem abortar, e uma run que falha não descarta as demais
+  (falhas em `stderr`, exit 1); `telemetry_captured_count` sai preenchido quando há
+  pontos; `run-experiment.sh` grava os argumentos do ataque como `params`, e
+  `build_comparison_table.py` só pareia runs com os mesmos parâmetros. Ver issue #29.
+- Depende de: Medir KPIs do Track B contra o broker plain.
+- Tamanho: M.
+- Teste: pytest de `scripts/` (piso da janela, isolamento por run, blocos Flux sem
+  placeholder sobrando); manual — `--all` sobre runs de duração zero, de 1 MB e de
+  `--connections 200` vs `50`, antes (aborta) e depois (exporta).

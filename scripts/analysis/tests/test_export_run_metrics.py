@@ -2,7 +2,8 @@
 
 Cobrem derivação de degradação/recuperação, achatamento do jsonb de Track B,
 canonicalização de params, serialização de célula CSV, geração de linha e
-extração/renderização de blocos Flux — tudo sem Postgres/InfluxDB reais.
+extração/renderização de blocos Flux, janela de consulta de runs de duração
+zero e isolamento de falhas por run — tudo sem Postgres/InfluxDB reais.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -355,6 +356,83 @@ class TestLoadFluxBlock:
         assert flux.startswith("from(bucket:")
         assert 'sort(columns: ["_time"])' in flux
 
+    def test_first_point_block_keeps_only_time(self):
+        # Sem o keep, a linha traz o `raw` (até 1 MB numa run malformed-payload) e
+        # estoura o limite de campo do parser CSV do cliente.
+        flux = ex.load_flux_block(
+            FLUX_DIR / "telemetry_by_run.flux", "first_point_timestamp"
+        )
+        assert flux.rstrip().endswith('|> keep(columns: ["_time"])')
+        assert "limit(n: 1)" in flux
+        assert "//" not in flux
+
+    def test_count_block_has_no_reactivated_optional_source_filter(self):
+        # O filtro `source == "__SOURCE__"` é opcional e fica comentado no bloco
+        # ativo. Reativá-lo zerava a contagem de TODA run.
+        flux = ex.load_flux_block(
+            FLUX_DIR / "telemetry_by_run.flux", "count_captured_points"
+        )
+        assert "__SOURCE__" not in flux
+        assert "source" not in flux
+        assert flux.rstrip().endswith("|> count()")
+
+    def test_active_block_drops_commented_optional_lines(self, tmp_path):
+        f = tmp_path / "x.flux"
+        f.write_text(
+            "// >>> BLOCK: a\n"
+            "from(bucket: \"__BUCKET__\")\n"
+            "    |> range(start: 0)\n"
+            "    // |> filter(fn: (r) => r.source == \"__SOURCE__\")\n"
+            "    |> count()\n"
+            "// <<< END BLOCK: a\n"
+        )
+        flux = ex.load_flux_block(f, "a")
+        assert "__SOURCE__" not in flux
+        assert flux.splitlines()[-1].strip() == "|> count()"
+
+    def test_fully_commented_block_is_still_uncommented(self, tmp_path):
+        f = tmp_path / "x.flux"
+        f.write_text(
+            "// >>> BLOCK: b\n"
+            "// from(bucket: \"__BUCKET__\")\n"
+            "//     |> range(start: 0)\n"
+            "//     |> last()\n"
+            "// <<< END BLOCK: b\n"
+        )
+        flux = ex.load_flux_block(f, "b")
+        assert flux.splitlines() == [
+            'from(bucket: "__BUCKET__")',
+            "    |> range(start: 0)",
+            "    |> last()",
+        ]
+
+    def test_every_versioned_block_renders_without_leftover_placeholders(self):
+        # Rede contra a classe inteira do defeito: nenhum bloco real pode sair
+        # da renderização com um `__X__` sem valor.
+        import re
+
+        for flux_file in sorted(FLUX_DIR.glob("*.flux")):
+            text = flux_file.read_text(encoding="utf-8")
+            for block_id in re.findall(r">>> BLOCK: (\w+)", text):
+                template = ex.load_flux_block(flux_file, block_id)
+                ex.render_flux(
+                    template,
+                    bucket="b",
+                    run_id="0eeec8ba-df79-4766-969d-02c9db2e36ae",
+                    broker="plain",
+                    start="2024-01-01T00:00:00Z",
+                    stop="2024-01-01T00:01:00Z",
+                )
+
+    def test_render_flux_rejects_leftover_placeholder(self):
+        with pytest.raises(ex.AnalysisError, match="__SOURCE__"):
+            ex.render_flux(
+                'from(bucket: "__BUCKET__") |> filter(fn: (r) => r.s == "__SOURCE__")',
+                bucket="b",
+                run_id="0eeec8ba-df79-4766-969d-02c9db2e36ae",
+                broker="plain",
+            )
+
     def test_missing_block_raises(self):
         with pytest.raises(ex.AnalysisError):
             ex.load_flux_block(
@@ -392,3 +470,106 @@ class TestLoadFluxBlock:
                 start="-1h",
                 stop="now",
             )
+
+
+# --------------------------------------------------------------------------- #
+# Janela de consulta (run de duração zero)
+# --------------------------------------------------------------------------- #
+
+class TestClampQueryWindow:
+    def test_zero_duration_gets_one_second_floor(self):
+        assert ex.clamp_query_window(_t(0), _t(0)) == _t(1)
+
+    def test_stop_before_start_gets_floor_from_start(self):
+        assert ex.clamp_query_window(_t(10), _t(5)) == _t(11)
+
+    def test_sub_second_window_is_widened(self):
+        stop = _t(0) + timedelta(milliseconds=400)
+        assert ex.clamp_query_window(_t(0), stop) == _t(1)
+
+    def test_normal_window_is_untouched(self):
+        assert ex.clamp_query_window(_t(0), _t(30)) == _t(30)
+
+    def test_exactly_one_second_is_untouched(self):
+        assert ex.clamp_query_window(_t(0), _t(1)) == _t(1)
+
+
+# --------------------------------------------------------------------------- #
+# Isolamento de falhas por run (--all não aborta tudo)
+# --------------------------------------------------------------------------- #
+
+class _FakeReader:
+    """InfluxReader mínimo: falha só para os run_ids em `broken`."""
+
+    def __init__(self, broken=()):
+        self.broken = set(broken)
+        self.windows = []  # (start, stop) literais recebidos em broker_metrics
+
+    def broker_metrics(self, run_id, broker, start, stop):
+        self.windows.append((start, stop))
+        if run_id in self.broken:
+            raise ex.AnalysisError(f"falha ao executar query Flux ({run_id})")
+        return {
+            "cpu_usage_percent_avg": 1.0,
+            "mem_usage_bytes_avg": None,
+            "mem_limit_bytes": None,
+            "net_rx_bytes_per_s_avg": None,
+            "net_tx_bytes_per_s_avg": None,
+            "restart_count": None,
+        }
+
+    def container_transitions(self, run_id, broker, start, stop):
+        return []
+
+    def telemetry(self, run_id, broker):
+        return {"telemetry_captured_count": 3, "first_capture_at": None}
+
+
+def _run_row(run_id):
+    return {
+        "run_id": run_id,
+        "mode": "plain",
+        "attack_type": "injection",
+        "params": None,
+        "started_at": _t(0),
+        "ended_at": _t(0),  # duração zero: só passa se a janela for corrigida
+    }
+
+
+class TestBuildRecords:
+    def _kw(self, keep_going):
+        return dict(bucket="b", recovery_read_margin_seconds=5.0, keep_going=keep_going)
+
+    def test_all_mode_skips_failed_run_and_keeps_the_rest(self):
+        runs = [_run_row("a"), _run_row("bad"), _run_row("c")]
+        records, failures = ex.build_records(
+            runs, _FakeReader(broken={"bad"}), **self._kw(True)
+        )
+        assert [r["run_id"] for r in records] == ["a", "c"]
+        assert [f[0] for f in failures] == ["bad"]
+        assert "falha ao executar query Flux" in failures[0][1]
+
+    def test_all_mode_with_no_failure_reports_none(self):
+        records, failures = ex.build_records(
+            [_run_row("a"), _run_row("b")], _FakeReader(), **self._kw(True)
+        )
+        assert len(records) == 2
+        assert failures == []
+
+    def test_single_run_mode_still_raises(self):
+        with pytest.raises(ex.AnalysisError):
+            ex.build_records(
+                [_run_row("bad")], _FakeReader(broken={"bad"}), **self._kw(False)
+            )
+
+    def test_zero_duration_run_queries_a_non_empty_window(self):
+        reader = _FakeReader()
+        records, failures = ex.build_records(
+            [_run_row("a")], reader, **self._kw(True)
+        )
+        assert failures == []
+        assert records[0]["cpu_usage_percent_avg"] == 1.0
+        # started_at == ended_at: o Flux recusaria range(start: X, stop: X).
+        (start, stop), = reader.windows
+        assert start == "2024-01-01T00:00:00Z"
+        assert stop == "2024-01-01T00:00:01Z"
