@@ -430,3 +430,16 @@ maior que isso na prática, quebrar mais). "Pronto quando" é sempre verificáve
 - Teste: `npm test` em `apps/api` (cobre `createMonotonicNanos`); medição de ponta
   a ponta — rajada de 1000 mensagens e `message-flood` a 467 e ~3000 msg/s, esperar
   o flush de 60s e comparar enviados com gravados (esperado: iguais).
+
+### Disparar ataques a partir do api (runner no attacker + endpoint `/launch`)
+- Pronto quando: `POST /experiments/runs/launch` cria a run, dispara o ataque no
+  `attacker` por HTTP interno, grava o KPI e encerra a run, para as 4 tracks; 409 com
+  run ativa; 400 para parâmetros inválidos sem criar run; o runner não é alcançável
+  pelo host e só aceita attackType/mode/flags da allowlist. Ver issue #33 e
+  [[ADR-0012]].
+- Depende de: Medir KPIs do Track B contra o broker plain.
+- Tamanho: M.
+- Teste: pytest de `attacker/` (`test_runner.py`) e jest de `apps/api` (orquestrador,
+  `paramsToArgs`, adapter); manual — `launch` de connection-flood, injeção plain e
+  secure, message-flood e payload gigante; 409 durante a run; runner recusando uma
+  flag e a run encerrando sozinha.

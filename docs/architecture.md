@@ -119,6 +119,11 @@ o porquê de o resto do backend ser modular pragmático em vez de clean/hexagona
    exibe ao vivo.
 2. **Track A (interceptação)**: idêntico ao baseline — a "vulnerabilidade" é o próprio
    fluxo de captura funcionando sem que o broker exija autorização.
+Os ataques são disparados pelo `nestjs-api`: `POST /experiments/runs/launch` cria a run
+(409 se já há uma ativa, [[ADR-0006]]), chama o runner HTTP do `attacker` pela rede
+interna (`http://attacker:8080/run`, sem Docker no caminho), grava o KPI do resultado e
+encerra a run ([[ADR-0012]]). O `attacker` nunca roda nada por conta própria.
+
 3. **Track A (injeção)**: `attacker` (Python) publica no mesmo tópico do sensor
    legítimo → `capture` não distingue a origem → grava/exibe como se fosse legítimo
    (tag `source=injected` vem do metadado da run, não de detecção).
