@@ -33,6 +33,7 @@ sem Postgres/Influx instalados.
 """
 
 import argparse
+import csv
 import json
 import os
 import re
@@ -40,6 +41,12 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+# O influxdb-client lê a resposta do Flux com o módulo `csv`, cujo limite padrão
+# de campo é 128 KiB. Uma run de payload gigante grava `raw` de 1 MB (ou mais) e
+# estourava com "field larger than field limit". A query do primeiro ponto já não
+# traz o `raw` (keep em telemetry_by_run.flux); isto é a rede de segurança.
+csv.field_size_limit(64 * 1024 * 1024)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 FLUX_DIR = Path(__file__).resolve().parent / "flux"
@@ -330,8 +337,14 @@ def load_flux_block(flux_path: Path, block_id: str) -> str:
     Os arquivos .flux têm vários blocos; só o primeiro fica ativo (executável),
     os demais ficam comentados com prefixo `// `. Esta função localiza o bloco
     pelo marcador e devolve apenas as LINHAS DE CÓDIGO Flux (from(...)/|> ...),
-    removendo um nível de comentário quando presente e descartando as linhas de
-    prosa/documentação — funcionando igual para o bloco ativo e os comentados.
+    descartando as linhas de prosa/documentação.
+
+    Bloco ATIVO (tem ao menos uma linha de código sem `//`): só as linhas ativas
+    entram. Uma linha de código comentada ali dentro é um opcional deliberado
+    (ex.: o filtro `source == "__SOURCE__"` do bloco A de telemetry_by_run.flux)
+    e NÃO pode ser reativada: reativá-la fazia a query filtrar por um placeholder
+    literal, não casar com nada e deixar `telemetry_captured_count` vazio em toda
+    run. Bloco COMENTADO (nenhuma linha ativa): todas as linhas são descomentadas.
     """
     text = flux_path.read_text(encoding="utf-8")
     start_marker = f">>> BLOCK: {block_id}"
@@ -339,7 +352,8 @@ def load_flux_block(flux_path: Path, block_id: str) -> str:
 
     lines = text.splitlines()
     inside = False
-    code_lines: List[str] = []
+    active_lines: List[str] = []
+    commented_lines: List[str] = []
     found = False
     for line in lines:
         if start_marker in line:
@@ -351,10 +365,15 @@ def load_flux_block(flux_path: Path, block_id: str) -> str:
             continue
         if not inside:
             continue
-        # Remove um único nível de comentário (`// `) para inspecionar/reativar.
+        # Remove um único nível de comentário (`// `) para inspecionar a linha.
         content = re.sub(r"^(\s*)//\s?", r"\1", line)
         if _FLUX_CODE_RE.match(content):
-            code_lines.append(content)
+            if content == line:
+                active_lines.append(content)
+            else:
+                commented_lines.append(content)
+
+    code_lines = active_lines if active_lines else commented_lines
 
     if not found:
         raise AnalysisError(
@@ -396,6 +415,13 @@ def render_flux(
             raise AnalysisError("__STOP__ presente mas nenhum 'stop' fornecido")
         assert_safe_flux_time(stop)
         rendered = rendered.replace("__STOP__", stop)
+    # Um placeholder sem valor (ex.: um opcional reativado por engano) viraria
+    # parte da query e a faria não casar com nada, em silêncio.
+    leftover = re.search(r"__[A-Z][A-Z_]*__", rendered)
+    if leftover:
+        raise AnalysisError(
+            f"placeholder Flux sem valor após a renderização: {leftover.group(0)}"
+        )
     return rendered
 
 
@@ -701,6 +727,19 @@ def _influx_connect():
 # Montagem da linha de uma run
 # --------------------------------------------------------------------------- #
 
+def clamp_query_window(start: datetime, stop: datetime) -> datetime:
+    """Garante uma janela de consulta não vazia: stop >= start + 1 s.
+
+    Uma run de duração zero (start e stop no mesmo instante, ou stop anterior por
+    skew) gera `range(start: X, stop: X)`, que o Flux recusa com 400 "cannot query
+    an empty range" e que derrubava a exportação inteira.
+    """
+    from datetime import timedelta
+
+    floor = start + timedelta(seconds=1)
+    return stop if stop >= floor else floor
+
+
 def build_run_record(
     run_row: Dict[str, Any],
     influx: "InfluxReader",
@@ -752,6 +791,7 @@ def build_run_record(
     window_stop_dt = attack_finish or record["ended_at"] or datetime.now(timezone.utc)
 
     if window_start_dt is not None:
+        window_stop_dt = clamp_query_window(window_start_dt, window_stop_dt)
         start_lit = _to_rfc3339(window_start_dt)
         stop_lit = _to_rfc3339(window_stop_dt)
         record.update(
@@ -773,7 +813,10 @@ def build_run_record(
     if attack_start is not None and attack_finish is not None:
         from datetime import timedelta
 
-        margin_stop = attack_finish + timedelta(seconds=recovery_read_margin_seconds)
+        margin_stop = clamp_query_window(
+            attack_start,
+            attack_finish + timedelta(seconds=recovery_read_margin_seconds),
+        )
         transitions = influx.container_transitions(
             run_id,
             mode,
@@ -801,8 +844,40 @@ def build_run_record(
 # Escrita do CSV
 # --------------------------------------------------------------------------- #
 
+def build_records(
+    runs: List[Dict[str, Any]],
+    influx: "InfluxReader",
+    *,
+    bucket: str,
+    recovery_read_margin_seconds: float,
+    keep_going: bool,
+) -> Tuple[List[Dict[str, Any]], List[Tuple[str, str]]]:
+    """Monta o record de cada run; devolve (records, falhas[(run_id, erro)]).
+
+    Com `keep_going` (modo `--all`) uma run que falha não descarta as demais: o
+    erro é registrado e a exportação segue. Sem ele (uma run explícita) o erro
+    propaga, como antes.
+    """
+    records: List[Dict[str, Any]] = []
+    failures: List[Tuple[str, str]] = []
+    for run_row in runs:
+        try:
+            records.append(
+                build_run_record(
+                    run_row,
+                    influx,
+                    bucket=bucket,
+                    recovery_read_margin_seconds=recovery_read_margin_seconds,
+                )
+            )
+        except AnalysisError as exc:
+            if not keep_going:
+                raise
+            failures.append((str(run_row.get("run_id")), str(exc)))
+    return records, failures
+
+
 def write_csv(records: List[Dict[str, Any]], out_path: Path) -> None:
-    import csv
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with out_path.open("w", encoding="utf-8", newline="") as fh:
@@ -890,16 +965,13 @@ def main(argv=None) -> int:
         influx_client = _influx_connect()
         reader = InfluxReader(influx_client, bucket)
 
-        records: List[Dict[str, Any]] = []
-        for run_row in runs:
-            records.append(
-                build_run_record(
-                    run_row,
-                    reader,
-                    bucket=bucket,
-                    recovery_read_margin_seconds=margin,
-                )
-            )
+        records, failures = build_records(
+            runs,
+            reader,
+            bucket=bucket,
+            recovery_read_margin_seconds=margin,
+            keep_going=args.run_id is None,
+        )
 
         write_csv(records, out_path)
     except AnalysisError as exc:
@@ -924,7 +996,9 @@ def main(argv=None) -> int:
         f"[export_run_metrics] {len(records)} run(s) exportada(s) para {out_path}",
         file=sys.stderr,
     )
-    return 0
+    for failed_id, message in failures:
+        print(f"[export_run_metrics] FALHOU {failed_id}: {message}", file=sys.stderr)
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":
