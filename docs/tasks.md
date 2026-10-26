@@ -420,3 +420,13 @@ maior que isso na prática, quebrar mais). "Pronto quando" é sempre verificáve
 - Teste: pytest de `scripts/` (piso da janela, isolamento por run, blocos Flux sem
   placeholder sobrando); manual — `--all` sobre runs de duração zero, de 1 MB e de
   `--connections 200` vs `50`, antes (aborta) e depois (exporta).
+
+### Gravar telemetria com timestamp monotônico em nanossegundos
+- Pronto quando: um flood grava no InfluxDB tantos pontos `telemetry` quantas
+  mensagens o broker entregou (sem sobrescrita por colisão de milissegundo), e o
+  gerador de timestamp tem teste unitário. Ver issue #27 e [[ADR-0011]].
+- Depende de: Corrigir token do InfluxDB no api e healthcheck do web no compose.
+- Tamanho: P.
+- Teste: `npm test` em `apps/api` (cobre `createMonotonicNanos`); medição de ponta
+  a ponta — rajada de 1000 mensagens e `message-flood` a 467 e ~3000 msg/s, esperar
+  o flush de 60s e comparar enviados com gravados (esperado: iguais).

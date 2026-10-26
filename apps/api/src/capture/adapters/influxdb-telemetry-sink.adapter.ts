@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import { InfluxDB, Point, WriteApi } from '@influxdata/influxdb-client';
 import { CaptureMetaEvent, TelemetryPoint } from '../ports/telemetry';
 import { TelemetrySinkPort } from '../ports/telemetry-sink.port';
+import { createMonotonicNanos } from './monotonic-nanos';
 
 export interface InfluxSinkConfig {
   url: string;
@@ -13,12 +14,15 @@ export interface InfluxSinkConfig {
 export class InfluxdbTelemetrySinkAdapter implements TelemetrySinkPort {
   private readonly logger = new Logger(InfluxdbTelemetrySinkAdapter.name);
   private readonly writeApi: WriteApi;
+  // Um ponto é único por (tags, timestamp): em ms, mensagens do mesmo
+  // milissegundo se sobrescreviam num flood. Ver monotonic-nanos.ts / ADR-0011.
+  private readonly nextNanos = createMonotonicNanos();
 
   constructor(config: InfluxSinkConfig) {
     this.writeApi = new InfluxDB({
       url: config.url,
       token: config.token,
-    }).getWriteApi(config.org, config.bucket, 'ms', {
+    }).getWriteApi(config.org, config.bucket, 'ns', {
       writeFailed: (error, lines, attempt) => {
         this.logger.error(
           `InfluxDB write failed (attempt ${attempt}, ${lines.length} line(s)): ${error}`,
@@ -37,7 +41,7 @@ export class InfluxdbTelemetrySinkAdapter implements TelemetrySinkPort {
       .tag('broker', point.broker)
       .tag('source', point.source)
       .stringField('raw', point.raw)
-      .timestamp(point.receivedAt);
+      .timestamp(this.nextNanos(point.receivedAt));
 
     if (point.temperature !== null) {
       influxPoint.floatField('temperature', point.temperature);
@@ -56,7 +60,7 @@ export class InfluxdbTelemetrySinkAdapter implements TelemetrySinkPort {
         .tag('broker', event.broker)
         .tag('event', event.event)
         .stringField('reason', event.reason)
-        .timestamp(event.at),
+        .timestamp(this.nextNanos(event.at)),
     );
   }
 

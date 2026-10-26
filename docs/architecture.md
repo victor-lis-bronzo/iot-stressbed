@@ -103,7 +103,10 @@ o porquê de o resto do backend ser modular pragmático em vez de clean/hexagona
 
 **InfluxDB** (série temporal):
 - measurement `telemetry` — tags: `run_id`, `sensor_id`, `broker` (plain|secure),
-  `source` (legit|injected). Escrito exclusivamente pelo módulo `capture`.
+  `source` (legit|injected). Escrito exclusivamente pelo módulo `capture`, com
+  timestamp em nanossegundos estritamente crescente: um ponto é único por (tags,
+  timestamp), e em milissegundo as mensagens de um flood se sobrescreviam
+  ([[ADR-0011]]).
 - measurement `broker_metrics` — tags: `run_id`, `broker`. Escrito exclusivamente por
   telegraf (input `docker`), nunca pelo `nestjs-api` ([[ADR-0003]]).
 - measurement `capture_meta` — eventos de falha/reconexão do `capture` (ex: broker caiu
