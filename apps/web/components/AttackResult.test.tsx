@@ -64,20 +64,30 @@ describe('AttackResult', () => {
     expect(screen.getByText('42.0%')).toBeInTheDocument();
   });
 
-  it('shows a link to the Grafana broker-metrics dashboard filtered by run_id when there is a relevant run', () => {
-    (useActiveRun as jest.Mock).mockReturnValue({
-      data: { id: 'run-1', mode: 'plain', attackType: 'connection-flood' },
+  it('links to the Grafana broker-metrics dashboard cut by the run time window (no run_id)', () => {
+    (useActiveRun as jest.Mock).mockReturnValue({ data: null });
+    (useDosRunHistory as jest.Mock).mockReturnValue({
+      data: [{ runId: 'run-1', trackBAttackType: 'connection-flood' }],
     });
-    (useDosRunHistory as jest.Mock).mockReturnValue({ data: [] });
-    (useDosRunResult as jest.Mock).mockReturnValue({ data: null, isPending: false });
+    (useDosRunResult as jest.Mock).mockReturnValue({
+      data: {
+        runId: 'run-1',
+        trackBAttackType: 'connection-flood',
+        trackBResult: {},
+        attackStartedAt: '2026-10-26T01:33:00.000Z',
+        attackFinishedAt: '2026-10-26T01:33:04.000Z',
+      },
+      isPending: false,
+    });
 
     render(<AttackResult />);
 
     const link = screen.getByRole('link', { name: /ver métricas do broker no grafana/i });
-    expect(link).toHaveAttribute(
-      'href',
-      'http://localhost:3001/d/stressbed-broker-metrics/broker-metrics?var-run_id=run-1&from=now-15m&to=now',
+    const href = link.getAttribute('href') ?? '';
+    expect(href).toBe(
+      `http://localhost:3001/d/stressbed-broker-metrics/broker-metrics?from=${Date.parse('2026-10-26T01:32:50.000Z')}&to=${Date.parse('2026-10-26T01:33:14.000Z')}`,
     );
+    expect(href).not.toContain('run_id');
     expect(link).toHaveAttribute('target', '_blank');
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
   });

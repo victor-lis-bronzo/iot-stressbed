@@ -5,22 +5,26 @@
 // O QUE FAZ
 // ---------
 // Extrai os agregados de recursos do container do broker (CPU, memória, rede,
-// restarts) para um par (run_id, broker), dentro de uma JANELA DE TEMPO
-// EXPLÍCITA __START__/__STOP__ — tipicamente o intervalo do ataque.
+// restarts) de um broker, dentro de uma JANELA DE TEMPO EXPLÍCITA
+// __START__/__STOP__ — tipicamente o intervalo do ataque.
+//
+// O recorte é SÓ pela janela, não pelo run_id (ADR-0013): o telegraf não é mais
+// recriado a cada run para carimbar um run_id, e como existe uma única run ativa
+// por vez (ADR-0006) o intervalo [started_at, ended_at] identifica as métricas
+// sem ambiguidade.
 //
 // Diferença importante em relação a `telemetry_by_run.flux`: lá usamos
-// `range(start: 0)` (tudo da run); aqui a janela é explícita, porque as
-// métricas de recurso só fazem sentido comparadas dentro de uma fase.
+// `range(start: 0)` e o run_id (tudo da run, que o `capture` carimba); aqui a
+// janela é explícita, porque as métricas de recurso só fazem sentido comparadas
+// dentro de uma fase.
 //
 // FONTE / SCHEMA
 // --------------
 // Measurement `broker_metrics`, coletado pelo Telegraf (`infra/telegraf/
-// telegraf.conf`, input `docker`). Padrão de query copiado dos painéis já
-// validados em `infra/grafana/dashboards/broker-metrics.json`, trocando o
-// regex de template var (`r.run_id =~ /^${run_id}$/`) por igualdade estrita.
+// telegraf.conf`, input `docker`). Mesmo padrão de query dos painéis em
+// `infra/grafana/dashboards/broker-metrics.json`.
 //
 //   tags:
-//     run_id           -> UUID da run
 //     broker           -> "plain" | "secure" | "attacker"
 //                         (attacker existe no measurement, mas não é alvo
 //                          destas queries; passe "plain" ou "secure")
@@ -37,15 +41,13 @@
 // PLACEHOLDERS
 // ------------
 //   __BUCKET__  -> nome do bucket InfluxDB (string). Ex.: iot-stressbed
-//   __RUN_ID__  -> UUID da run (string)
 //   __BROKER__  -> "plain" ou "secure" (string)
 //   __START__   -> literal de tempo Flux, SEM aspas. Aceita RFC3339
 //                  (2024-01-01T00:00:00Z) ou duração relativa (-1h, -30m).
 //   __STOP__    -> idem __START__. Use `now()` para "até agora".
 //
-// Atenção: __BUCKET__/__RUN_ID__/__BROKER__ são strings e aparecem entre
-// aspas duplas no corpo; __START__/__STOP__ são literais de tempo/duração e
-// aparecem SEM aspas.
+// Atenção: __BUCKET__/__BROKER__ são strings e aparecem entre aspas duplas no
+// corpo; __START__/__STOP__ são literais de tempo/duração e aparecem SEM aspas.
 //
 // COMO RODAR MANUALMENTE
 // ----------------------
@@ -63,32 +65,22 @@
 //   mem_limit_last    -> colunas: broker, _value  (limite de memória, bytes)
 //   net_rate_mean     -> 2 linhas (uma por _field: rx_bytes, tx_bytes);
 //                        colunas: broker, _field, _value (bytes/s médios)
-//   restart_count_last-> colunas: broker, container_status, run_id,
+//   restart_count_last-> colunas: broker, container_status,
 //                        restart_count (contador cumulativo no fim da janela)
 //
 // -----------------------------------------------------------------------------
-// !! NOTA DE SEGURANÇA — VALIDAR run_id ANTES DE SUBSTITUIR !!
+// !! NOTA DE SEGURANÇA — VALIDAR OS PLACEHOLDERS ANTES DE SUBSTITUIR !!
 // -----------------------------------------------------------------------------
 // Este arquivo NÃO valida nada sozinho: apenas documenta a exigência.
-// A substituição de `__RUN_ID__` é composição de string pura em Flux e é
-// vulnerável a injeção se o valor não for validado (um run_id com `"` fecha a
-// string e injeta Flux arbitrário).
+// A substituição é composição de string pura em Flux e é vulnerável a injeção
+// se o valor não for validado (um valor com `"` fecha a string e injeta Flux
+// arbitrário). Esta query não interpola mais o run_id (ADR-0013); o recorte é a
+// janela de tempo.
 //
-// O Python consumidor DEVE validar o run_id com o MESMO regex de UUID
-// case-insensitive do guard `assertSafeRunId()` em
-// `apps/api/src/metrics/adapters/influxdb-telemetry-query.adapter.ts`,
-// ANTES de qualquer substituição de placeholder:
-//
-//     UUID_RE = re.compile(
-//         r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-//         re.IGNORECASE,
-//     )
-//     if not UUID_RE.match(run_id):
-//         raise ValueError(f"invalid runId for Flux query: {run_id}")
-//
-// Igualmente: `__BROKER__` deve ser validado contra {"plain", "secure"}, e
-// `__START__`/`__STOP__` contra RFC3339 ou duração relativa (`-?\d+[smhdw]`)
-// antes de entrarem na string.
+// O Python consumidor DEVE validar, ANTES de qualquer substituição:
+//   - `__BROKER__`            contra {"plain", "secure"};
+//   - `__START__`/`__STOP__`  contra RFC3339 ou duração relativa
+//                             (`-?\d+[smhdw]`).
 // =============================================================================
 
 
@@ -101,7 +93,6 @@ from(bucket: "__BUCKET__")
     |> range(start: __START__, stop: __STOP__)
     |> filter(fn: (r) => r._measurement == "broker_metrics")
     |> filter(fn: (r) => r._field == "usage_percent" and r.cpu == "cpu-total")
-    |> filter(fn: (r) => r.run_id == "__RUN_ID__")
     |> filter(fn: (r) => r.broker == "__BROKER__")
     |> keep(columns: ["_time", "_value", "broker"])
     // group por broker: colapsa as demais tags numa única série por broker.
@@ -118,7 +109,6 @@ from(bucket: "__BUCKET__")
 //     |> range(start: __START__, stop: __STOP__)
 //     |> filter(fn: (r) => r._measurement == "broker_metrics")
 //     |> filter(fn: (r) => r._field == "usage")
-//     |> filter(fn: (r) => r.run_id == "__RUN_ID__")
 //     |> filter(fn: (r) => r.broker == "__BROKER__")
 //     |> keep(columns: ["_time", "_value", "broker"])
 //     |> group(columns: ["broker"])
@@ -136,7 +126,6 @@ from(bucket: "__BUCKET__")
 //     |> range(start: __START__, stop: __STOP__)
 //     |> filter(fn: (r) => r._measurement == "broker_metrics")
 //     |> filter(fn: (r) => r._field == "limit")
-//     |> filter(fn: (r) => r.run_id == "__RUN_ID__")
 //     |> filter(fn: (r) => r.broker == "__BROKER__")
 //     |> keep(columns: ["_time", "_value", "broker"])
 //     |> group(columns: ["broker"])
@@ -156,7 +145,6 @@ from(bucket: "__BUCKET__")
 //     |> range(start: __START__, stop: __STOP__)
 //     |> filter(fn: (r) => r._measurement == "broker_metrics")
 //     |> filter(fn: (r) => r._field == "rx_bytes" or r._field == "tx_bytes")
-//     |> filter(fn: (r) => r.run_id == "__RUN_ID__")
 //     |> filter(fn: (r) => r.broker == "__BROKER__")
 //     |> keep(columns: ["_time", "_value", "_field", "broker"])
 //     |> group(columns: ["broker", "_field"])
@@ -171,14 +159,13 @@ from(bucket: "__BUCKET__")
 // Nº de restarts do container ao fim da janela (contador cumulativo).
 // last() pega o valor final; para "restarts ocorridos NA janela" o Python deve
 // subtrair o primeiro valor da janela (ou usar difference()).
-// Mantém container_status e run_id no resultado para conferência manual.
+// Mantém container_status no resultado para conferência manual.
 // from(bucket: "__BUCKET__")
 //     |> range(start: __START__, stop: __STOP__)
 //     |> filter(fn: (r) => r._measurement == "broker_metrics")
 //     |> filter(fn: (r) => r._field == "restart_count")
-//     |> filter(fn: (r) => r.run_id == "__RUN_ID__")
 //     |> filter(fn: (r) => r.broker == "__BROKER__")
 //     |> last()
-//     |> keep(columns: ["broker", "container_status", "run_id", "_value"])
+//     |> keep(columns: ["broker", "container_status", "_value"])
 //     |> rename(columns: {_value: "restart_count"})
 // <<< END BLOCK: restart_count_last

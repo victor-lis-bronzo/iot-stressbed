@@ -1,21 +1,24 @@
 #!/usr/bin/env bash
 #
-# Dispara uma run reproduzível end-to-end contra o container `attacker`:
-#   login -> start run -> disparo do ataque -> stop run
+# Dispara uma run reproduzível end-to-end pelo nestjs-api:
+#   login -> POST /experiments/runs/launch -> espera a run terminar -> resultado
 #
-# É o único caminho correto para rodar qualquer script do attacker: fora de
-# uma run com o attackType correspondente o capture gravaria a telemetria sob
-# a tag errada (ex. injeção como source=legit), corrompendo o KPI (ADR-0006,
-# run única ativa). Ver attacker/README.md.
+# É um cliente fino do MESMO endpoint que o botão "Disparar" do dashboard usa
+# (ADR-0012): terminal e dashboard produzem runs idênticas. Quem orquestra é o
+# api (start da run, ataque no container `attacker`, registro do KPI, stop); este
+# script não toca no Docker. É o único caminho correto para rodar um ataque: fora
+# de uma run com o attackType correspondente o capture gravaria a telemetria sob
+# a tag errada (ex. injeção como source=legit), corrompendo o KPI (ADR-0006, run
+# única ativa). Ver attacker/README.md.
 #
-# Tracks suportadas e o script disparado dentro do container `attacker`:
-#   injection          -> python/injector.py           (Track A)
-#   connection-flood   -> python/connection_flood.py   (Track B)
-#   message-flood      -> python/message_flood.py      (Track B)
-#   malformed-payload  -> python/malformed_payload.py   (Track B)
+# Tracks suportadas (o attackType da run):
+#   injection          Track A
+#   connection-flood   Track B
+#   message-flood      Track B
+#   malformed-payload  Track B
 #
 # Uso:
-#   ./scripts/run-experiment.sh <track> <plain|secure> [-- <args extras para o script do ataque>]
+#   ./scripts/run-experiment.sh <track> <plain|secure> [-- <args extras para o ataque>]
 #
 # Exemplos:
 #   ./scripts/run-experiment.sh injection plain
@@ -27,29 +30,40 @@
 #   # <plain|secure> deste script), passada via passthrough:
 #   ./scripts/run-experiment.sh malformed-payload plain -- --mode giant --size-bytes 10000000
 #
-# Nota sobre exit code: só `injection` usa 0/1 para comprovar a assimetria
-# plain aceita/secure rejeita. As 3 tracks de Track B praticamente sempre
-# retornam 0 (falhas de rede/broker ficam no JSON de resultado, não no exit
-# code) — ver attacker/README.md e o docstring de cada script para detalhes.
-# Este script apenas repassa o exit code do processo disparado, sem
-# reinterpretar sua semântica.
+# Os args extras viram `params` da run (objeto {flag: valor}, ex.
+# {"connections": 200}): é o que distingue 1000 de 200 conexões no pareamento
+# plain/secure de scripts/analysis/build_comparison_table.py. Para comparar plain
+# com secure, use EXATAMENTE os mesmos args nos dois modos. O api converte os
+# params de volta em flags do script do ataque; só flags da allowlist do runner
+# (attacker/python/runner.py) são aceitas.
 #
-# Os args extras também são gravados como `params` da run (ver params_json
-# abaixo): é o que distingue, na tabela comparativa, 1000 de 200 conexões.
+# Saída: o KPI da run (JSON de GET /metrics/runs/<id>) em stdout, logs em stderr.
 #
-# Credenciais da API: exporte antes de rodar (não há credencial hardcoded aqui).
-# Use as mesmas do admin semeado pelo backend (AUTH_ADMIN_EMAIL/PASSWORD no .env):
+# Exit code: 0 = ok; 1 = o secure aceitou o atacante na injeção (achado grave) ou o
+# ataque não devolveu resultado; 2 = uso/credenciais; 3 = erro de API/rede. Para
+# `injection`, rodar contra `secure` e terminar com 0 é o resultado CORRETO (a
+# injeção foi rejeitada) — ver docs/track-a-guide.md. As 3 tracks de Track B
+# retornam 0 mesmo se o broker degradar (isso fica no JSON de resultado).
+#
+# Ctrl-C: o ataque roda no container `attacker` e NÃO é interrompido por aqui —
+# parar a run no meio corromperia os KPIs. O script só para de esperar; a run
+# segue ativa até o ataque terminar (ou até um POST /experiments/runs/stop).
+#
+# Requer curl e python3 no host. Credenciais da API: exporte antes de rodar (não
+# há credencial hardcoded aqui). Use as mesmas do admin semeado pelo backend
+# (AUTH_ADMIN_EMAIL/PASSWORD):
 #   export RUN_EXPERIMENT_EMAIL="admin@stressbed.com"
 #   export RUN_EXPERIMENT_PASSWORD="@admin123"
 #
-# Configuráveis por env (com defaults do .env.example):
-#   API_BASE_URL  (default http://localhost:${API_PORT:-3000})
+# Configuráveis por env:
+#   API_BASE_URL            (default http://localhost:${API_PORT:-3000})
+#   RUN_EXPERIMENT_TIMEOUT  segundos esperando a run terminar (default 3900)
 set -euo pipefail
 
 # --- Validação de argumentos ---------------------------------------------- #
 
 usage() {
-  echo "uso: $0 <track> <plain|secure> [-- <args extras para o script do ataque>]" >&2
+  echo "uso: $0 <track> <plain|secure> [-- <args extras para o ataque>]" >&2
   echo "  tracks: injection | connection-flood | message-flood | malformed-payload" >&2
   echo "  ex.: $0 injection plain -- --count 20 --interval 0.1" >&2
   echo "  ex.: $0 connection-flood plain -- --connections 200" >&2
@@ -60,20 +74,8 @@ usage() {
 TRACK="${1:-}"
 MODE="${2:-}"
 
-# Resolve o script Python disparado no container `attacker` para cada track.
 case "$TRACK" in
-  injection)
-    ATTACK_SCRIPT="python/injector.py"
-    ;;
-  connection-flood)
-    ATTACK_SCRIPT="python/connection_flood.py"
-    ;;
-  message-flood)
-    ATTACK_SCRIPT="python/message_flood.py"
-    ;;
-  malformed-payload)
-    ATTACK_SCRIPT="python/malformed_payload.py"
-    ;;
+  injection|connection-flood|message-flood|malformed-payload) ;;
   *)
     echo "erro: track inválida ou ausente: '${TRACK}'" >&2
     usage
@@ -87,13 +89,19 @@ if [[ "$MODE" != "plain" && "$MODE" != "secure" ]]; then
   exit 2
 fi
 
-# Consome os 2 obrigatórios; o resto ("$@") repassa ao script do ataque. O
-# operador pode ou não incluir o separador `--`; ambos funcionam pois shift já
-# os removeu.
+# Consome os 2 obrigatórios; o resto ("$@") são os args do ataque. O operador pode
+# ou não incluir o separador `--`; ambos funcionam pois shift já os removeu.
 shift 2
 if [[ "${1:-}" == "--" ]]; then
   shift
 fi
+
+for tool in curl python3; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "erro: '${tool}' não encontrado no PATH." >&2
+    exit 2
+  fi
+done
 
 # --- Credenciais e configuração ------------------------------------------- #
 
@@ -106,36 +114,28 @@ if [[ -z "${RUN_EXPERIMENT_EMAIL:-}" || -z "${RUN_EXPERIMENT_PASSWORD:-}" ]]; th
 fi
 
 API_BASE_URL="${API_BASE_URL:-http://localhost:${API_PORT:-3000}}"
+TIMEOUT="${RUN_EXPERIMENT_TIMEOUT:-3900}"
 
-# --- Login ---------------------------------------------------------------- #
-# Extraímos o access_token com grep/sed em vez de jq para não adicionar uma
-# dependência extra ao operador: o corpo é sabidamente {"access_token":"..."},
-# um único campo string, então um recorte por regex é suficiente e robusto aqui.
-
-echo "==> login em ${API_BASE_URL}/auth/login ..." >&2
-LOGIN_RESPONSE="$(curl -sS -X POST "${API_BASE_URL}/auth/login" \
-  -H 'Content-Type: application/json' \
-  -d "{\"email\":\"${RUN_EXPERIMENT_EMAIL}\",\"password\":\"${RUN_EXPERIMENT_PASSWORD}\"}")"
-
-TOKEN="$(printf '%s' "$LOGIN_RESPONSE" \
-  | grep -o '"access_token"[[:space:]]*:[[:space:]]*"[^"]*"' \
-  | sed 's/.*"access_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')"
-
-if [[ -z "$TOKEN" ]]; then
-  echo "erro: não consegui extrair access_token do login. Resposta:" >&2
-  echo "$LOGIN_RESPONSE" >&2
-  exit 1
-fi
-echo "==> autenticado." >&2
-
-# --- Start run ------------------------------------------------------------ #
+# Lê um campo de um JSON em stdin. Uso: echo "$JSON" | json_get 'd["id"]'
+# Imprime vazio (e sai 0) se o JSON for inválido/vazio ou o campo não existir.
+json_get() {
+  python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    v = eval(sys.argv[1], {"d": d})
+except Exception:
+    v = None
+print("" if v is None else v)
+' "$1"
+}
 
 # Os args extras do ataque viram `params` da run (objeto {flag: valor}). Sem isso
 # o pareamento plain/secure de scripts/analysis/build_comparison_table.py (chave
 # = attack_type + params) tratava 1000 e 200 conexões como o MESMO cenário.
 # Objeto e não array: `--rate 200 --duration-seconds 30` e a ordem inversa são o
 # mesmo cenário, e a canonicalização do exportador ordena as chaves. Montado em
-# python3 (já requisito do projeto) para escapar aspas corretamente sem jq.
+# python3 para escapar aspas corretamente sem jq.
 params_json() {
   python3 - "$@" <<'PY'
 import json, sys
@@ -167,103 +167,97 @@ print(json.dumps(params, separators=(",", ":"), ensure_ascii=False))
 PY
 }
 
-START_BODY="{\"mode\":\"${MODE}\",\"attackType\":\"${TRACK}\"}"
+# --- Login ---------------------------------------------------------------- #
+
+echo "==> login em ${API_BASE_URL}/auth/login ..." >&2
+LOGIN_RESPONSE="$(curl -sS -X POST "${API_BASE_URL}/auth/login" \
+  -H 'Content-Type: application/json' \
+  -d "{\"email\":\"${RUN_EXPERIMENT_EMAIL}\",\"password\":\"${RUN_EXPERIMENT_PASSWORD}\"}" \
+  || true)"
+TOKEN="$(printf '%s' "$LOGIN_RESPONSE" | json_get 'd["access_token"]')"
+
+if [[ -z "$TOKEN" ]]; then
+  echo "erro: não consegui extrair access_token do login. Resposta:" >&2
+  echo "$LOGIN_RESPONSE" >&2
+  exit 3
+fi
+echo "==> autenticado." >&2
+
+# --- Launch --------------------------------------------------------------- #
+
+LAUNCH_BODY="{\"mode\":\"${MODE}\",\"attackType\":\"${TRACK}\"}"
 if [[ $# -gt 0 ]]; then
-  if PARAMS_JSON="$(params_json "$@")"; then
-    START_BODY="{\"mode\":\"${MODE}\",\"attackType\":\"${TRACK}\",\"params\":${PARAMS_JSON}}"
-  else
-    echo "aviso: não consegui registrar os params da run (python3 ausente?); o pareamento plain/secure não os distinguirá." >&2
+  PARAMS_JSON="$(params_json "$@")"
+  LAUNCH_BODY="{\"mode\":\"${MODE}\",\"attackType\":\"${TRACK}\",\"params\":${PARAMS_JSON}}"
+fi
+
+echo "==> disparando (mode=${MODE}, attackType=${TRACK}) ..." >&2
+LAUNCH_FILE="$(mktemp)"
+trap 'rm -f "$LAUNCH_FILE"' EXIT
+HTTP_STATUS="$(curl -sS -o "$LAUNCH_FILE" -w '%{http_code}' -X POST \
+  "${API_BASE_URL}/experiments/runs/launch" \
+  -H "Authorization: Bearer ${TOKEN}" \
+  -H 'Content-Type: application/json' \
+  -d "$LAUNCH_BODY" || echo "000")"
+LAUNCH_RESPONSE="$(cat "$LAUNCH_FILE")"
+
+if [[ "$HTTP_STATUS" != "202" ]]; then
+  echo "erro: o api recusou o disparo (HTTP ${HTTP_STATUS}): $(printf '%s' "$LAUNCH_RESPONSE" | json_get 'd.get("message")' || true)" >&2
+  [[ "$HTTP_STATUS" == "409" ]] && echo "      já existe uma run ativa; espere ela terminar (ADR-0006)." >&2
+  exit 3
+fi
+
+RUN_ID="$(printf '%s' "$LAUNCH_RESPONSE" | json_get 'd["id"]')"
+if [[ -z "$RUN_ID" ]]; then
+  echo "erro: não consegui extrair o run id da resposta do launch. Resposta:" >&2
+  echo "$LAUNCH_RESPONSE" >&2
+  exit 3
+fi
+echo "==> run iniciada: ${RUN_ID}" >&2
+
+# Ctrl-C só para de esperar: o ataque segue no `attacker` (ver cabeçalho).
+trap 'echo; echo "==> interrompido. O ataque continua no attacker; a run ${RUN_ID} segue ativa até terminar (ou POST ${API_BASE_URL}/experiments/runs/stop)." >&2; exit 130' INT TERM
+
+# --- Espera a run terminar ------------------------------------------------- #
+
+DEADLINE=$((SECONDS + TIMEOUT))
+while true; do
+  ACTIVE="$(curl -sS "${API_BASE_URL}/experiments/runs/active" \
+    -H "Authorization: Bearer ${TOKEN}" || true)"
+  ACTIVE_ID="$(printf '%s' "$ACTIVE" | json_get 'd["id"]')"
+  if [[ "$ACTIVE_ID" != "$RUN_ID" ]]; then
+    break
+  fi
+  if (( SECONDS >= DEADLINE )); then
+    echo "erro: a run ${RUN_ID} não terminou em ${TIMEOUT}s." >&2
+    exit 3
+  fi
+  sleep 2
+done
+echo "==> run finalizada." >&2
+
+# --- Resultado ------------------------------------------------------------- #
+
+KPI="$(curl -sS "${API_BASE_URL}/metrics/runs/${RUN_ID}" \
+  -H "Authorization: Bearer ${TOKEN}" || true)"
+echo "$KPI"
+
+if [[ "$TRACK" == "injection" ]]; then
+  STATUS="$(printf '%s' "$KPI" | json_get 'd["injectionConnectStatus"]')"
+  if [[ -z "$STATUS" ]]; then
+    echo "erro: a injeção não devolveu resultado (ver os logs do nestjs-api)." >&2
+    exit 1
+  fi
+  # secure aceitar o atacante é o achado grave; rejeitado é o resultado correto.
+  if [[ "$MODE" == "secure" && "$STATUS" == "connected" ]]; then
+    echo "ACHADO GRAVE: o broker secure aceitou o atacante." >&2
+    exit 1
+  fi
+else
+  RESULT="$(printf '%s' "$KPI" | json_get 'd["trackBResult"] and "ok"')"
+  if [[ -z "$RESULT" ]]; then
+    echo "erro: o ataque não devolveu resultado (ver os logs do nestjs-api)." >&2
+    exit 1
   fi
 fi
-
-echo "==> iniciando run (mode=${MODE}, attackType=${TRACK}) ..." >&2
-START_RESPONSE="$(curl -sS -X POST "${API_BASE_URL}/experiments/runs/start" \
-  -H "Authorization: Bearer ${TOKEN}" \
-  -H 'Content-Type: application/json' \
-  -d "${START_BODY}")"
-echo "==> run iniciada: ${START_RESPONSE}" >&2
-
-# Mesmo recorte por regex do access_token acima: o corpo é um objeto plano
-# {"id":"...",...}, então extrair "id" por regex evita depender de jq aqui também.
-RUN_ID="$(printf '%s' "$START_RESPONSE" \
-  | grep -o '"id"[[:space:]]*:[[:space:]]*"[^"]*"' \
-  | head -n1 \
-  | sed 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/')"
-
-if [[ -z "$RUN_ID" ]]; then
-  echo "erro: não consegui extrair o run id da resposta de start. Resposta:" >&2
-  echo "$START_RESPONSE" >&2
-  exit 1
-fi
-
-# --- Propagação do run_id para o telegraf --------------------------------- #
-# O telegraf carimba `run_id` em `broker_metrics` a partir de [global_tags]
-# (infra/telegraf/telegraf.conf), que é resolvido a partir do env var RUN_ID no
-# START do container — não é relido em runtime. Exportar a variável aqui não
-# basta: sem recriar o container, todos os pontos continuariam com o default
-# `run_id="none"` do docker-compose.yml e o dashboard/flux filtrado pelo run id
-# real não acharia nada. Daí o `up -d telegraf`, que recria o container com o
-# novo valor.
-export RUN_ID
-docker compose up -d telegraf
-
-# A recriação derruba o telegraf por alguns instantes e o primeiro ciclo de
-# coleta só ocorre um intervalo depois de subir: sem esta pausa o começo do
-# ataque cairia na janela cega e ficaria sem pontos sob o run_id novo.
-sleep "${TELEGRAF_INTERVAL:-5s}"
-
-# A run precisa ser encerrada mesmo se o ataque falhar. O caso `injection`
-# contra `secure` retorna exit 1 quando o broker aceita o atacante (achado
-# grave) — e mesmo nesse cenário o stop tem que rodar, senão a run fica presa
-# como ativa e bloqueia as próximas (ADR-0006). Por isso o stop vai num trap
-# EXIT.
-stop_run() {
-  echo "==> encerrando run ..." >&2
-  # `|| true`: um erro no stop não deve estourar o trap nem mascarar o exit code
-  # real do ataque (preservado abaixo).
-  curl -sS -X POST "${API_BASE_URL}/experiments/runs/stop" \
-    -H "Authorization: Bearer ${TOKEN}" \
-    -H 'Content-Type: application/json' >/dev/null || true
-  # Volta o carimbo do telegraf para o default `none`: fora de uma run ativa os
-  # pontos de `broker_metrics` não podem continuar atribuídos a esta run. Mesma
-  # mecânica do start (global_tags fixado na subida do container), por isso
-  # recria de novo. Best-effort como o stop acima — falhar aqui não pode
-  # mascarar o exit code real do ataque.
-  export RUN_ID="none"
-  docker compose up -d telegraf >/dev/null 2>&1 || true
-  echo "==> run finalizada." >&2
-}
-trap stop_run EXIT
-
-# --- Disparo do ataque ----------------------------------------------------- #
-# -T desabilita a alocação de TTY: sem isso `docker compose exec` falha quando
-# rodado fora de um terminal interativo (ex. CI). "$@" repassa os args extras.
-
-echo "==> disparando attacker (${ATTACK_SCRIPT} --target ${MODE}) ..." >&2
-set +e
-# Cada script do attacker imprime logs em stderr e o resultado (JSON) em
-# stdout, nessa ordem — capturamos só o stdout aqui para poder repassar o JSON
-# intacto, sem misturar com as linhas de log.
-ATTACK_OUTPUT="$(docker compose exec -T attacker python "${ATTACK_SCRIPT}" --target "${MODE}" "$@")"
-ATTACK_EXIT=$?
-set -e
-echo "==> attacker finalizado (exit ${ATTACK_EXIT})." >&2
-echo "$ATTACK_OUTPUT"
-
-# Registro de KPI via /metrics: as 4 tracks (injection + as 3 de Track B) têm
-# endpoint equivalente, sempre nomeado "${TRACK}-result" (injection-result,
-# connection-flood-result, message-flood-result, malformed-payload-result),
-# então uma única chamada incondicional cobre todas. Não-fatal: uma falha
-# aqui não deve mascarar o exit code real do ataque.
-echo "==> registrando resultado de ${TRACK} em ${API_BASE_URL}/metrics/runs/${RUN_ID}/${TRACK}-result ..." >&2
-curl -sS -X POST "${API_BASE_URL}/metrics/runs/${RUN_ID}/${TRACK}-result" \
-  -H "Authorization: Bearer ${TOKEN}" \
-  -H 'Content-Type: application/json' \
-  -d "$ATTACK_OUTPUT" >/dev/null \
-  || echo "aviso: falha ao registrar KPI de ${TRACK} (não-fatal)." >&2
-
-# O trap EXIT roda o stop_run aqui. Propagamos o exit code do ataque para o
-# chamador sem reinterpretar: para `injection`, 0 = ok (plain rodou, ou secure
-# rejeitado como esperado) e 1 = secure aceitou o atacante (achado grave); para
-# as 3 tracks de Track B, ver a nota de exit code no cabeçalho deste script.
-exit "$ATTACK_EXIT"
+exit 0

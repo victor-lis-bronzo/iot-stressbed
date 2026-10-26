@@ -655,8 +655,6 @@ services:
       INFLUXDB_TOKEN: ${INFLUXDB_TOKEN:-dev-only-influx-token}
       INFLUXDB_ORG: ${INFLUXDB_ORG:-stressbed}
       INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-stressbed}
-      # Tag da run ativa; "none" fora de um experimento.
-      RUN_ID: ${RUN_ID:-none}
 
     volumes:
       - ./infra/telegraf/telegraf.conf:/etc/telegraf/telegraf.conf:ro

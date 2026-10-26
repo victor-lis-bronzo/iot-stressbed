@@ -441,23 +441,59 @@ class TestLoadFluxBlock:
 
     def test_render_substitutes_and_validates(self):
         template = ex.load_flux_block(
-            FLUX_DIR / "broker_metrics_by_run.flux", "cpu_mean"
+            FLUX_DIR / "telemetry_by_run.flux", "count_captured_points"
         )
         rendered = ex.render_flux(
             template,
             bucket="stressbed",
             run_id="3f2b1c8a-1234-4abc-89de-0123456789ab",
             broker="plain",
-            start="2024-01-01T00:00:00Z",
-            stop="2024-01-01T00:10:00Z",
         )
         assert "__BUCKET__" not in rendered
         assert "__RUN_ID__" not in rendered
-        assert "__START__" not in rendered
         assert 'r.run_id == "3f2b1c8a-1234-4abc-89de-0123456789ab"' in rendered
         assert 'bucket: "stressbed"' in rendered
 
+    def test_broker_blocks_are_cut_by_time_window_not_run_id(self):
+        # ADR-0013: o telegraf não é mais recriado por run, então broker_metrics
+        # não carrega run_id; o recorte é a janela [start, stop].
+        import re
+
+        for name in ("broker_metrics_by_run.flux", "container_status_transitions.flux"):
+            text = (FLUX_DIR / name).read_text(encoding="utf-8")
+            for block_id in re.findall(r">>> BLOCK: (\w+)", text):
+                flux = ex.load_flux_block(FLUX_DIR / name, block_id)
+                assert "run_id" not in flux, (name, block_id)
+                assert "__RUN_ID__" not in flux, (name, block_id)
+                rendered = ex.render_flux(
+                    flux,
+                    bucket="b",
+                    broker="plain",
+                    start="2024-01-01T00:00:00Z",
+                    stop="2024-01-01T00:10:00Z",
+                )
+                assert "range(start: 2024-01-01T00:00:00Z, stop: 2024-01-01T00:10:00Z)" in rendered
+
+    def test_telemetry_blocks_still_require_a_run_id(self):
+        template = ex.load_flux_block(
+            FLUX_DIR / "telemetry_by_run.flux", "count_captured_points"
+        )
+        with pytest.raises(ex.AnalysisError, match="run_id"):
+            ex.render_flux(template, bucket="b", broker="plain")
+
     def test_render_rejects_bad_run_id(self):
+        template = ex.load_flux_block(
+            FLUX_DIR / "telemetry_by_run.flux", "count_captured_points"
+        )
+        with pytest.raises(ValueError):
+            ex.render_flux(
+                template,
+                bucket="stressbed",
+                run_id='x" or true',
+                broker="plain",
+            )
+
+    def test_render_validates_a_run_id_even_when_the_block_ignores_it(self):
         template = ex.load_flux_block(
             FLUX_DIR / "broker_metrics_by_run.flux", "cpu_mean"
         )
@@ -499,16 +535,14 @@ class TestClampQueryWindow:
 # --------------------------------------------------------------------------- #
 
 class _FakeReader:
-    """InfluxReader mínimo: falha só para os run_ids em `broken`."""
+    """InfluxReader mínimo: falha (na telemetria) só para os run_ids em `broken`."""
 
     def __init__(self, broken=()):
         self.broken = set(broken)
         self.windows = []  # (start, stop) literais recebidos em broker_metrics
 
-    def broker_metrics(self, run_id, broker, start, stop):
+    def broker_metrics(self, broker, start, stop):
         self.windows.append((start, stop))
-        if run_id in self.broken:
-            raise ex.AnalysisError(f"falha ao executar query Flux ({run_id})")
         return {
             "cpu_usage_percent_avg": 1.0,
             "mem_usage_bytes_avg": None,
@@ -518,10 +552,12 @@ class _FakeReader:
             "restart_count": None,
         }
 
-    def container_transitions(self, run_id, broker, start, stop):
+    def container_transitions(self, broker, start, stop):
         return []
 
     def telemetry(self, run_id, broker):
+        if run_id in self.broken:
+            raise ex.AnalysisError(f"falha ao executar query Flux ({run_id})")
         return {"telemetry_captured_count": 3, "first_capture_at": None}
 
 

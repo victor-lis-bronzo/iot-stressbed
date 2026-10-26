@@ -136,9 +136,10 @@ descartado. Para cada KPI numérico comparável: `<kpi>_plain`, `<kpi>_secure`,
 Exporta os 4 painéis do dashboard `stressbed-broker-metrics`
 (`infra/grafana/dashboards/broker-metrics.json`) — CPU, memória, rede e
 container-status — como PNGs, via a API de renderização de imagem do Grafana
-(`/render/d-solo/...`). Não depende de nenhum outro script desta fase: pode ser
-rodado antes, depois ou independentemente do Entregável 1/3, desde que a
-stack (Grafana + InfluxDB) esteja de pé e a run já tenha dados no InfluxDB.
+(`/render/d-solo/...`). A run é recortada pela **janela de tempo** dela, não por
+`run_id` ([[ADR-0013]]); por isso, sem `FROM`/`TO`, ele lê a janela em
+`out/run_metrics.csv` — rode o `export_run_metrics.py` antes. A stack (Grafana +
+InfluxDB) precisa estar de pé e a run ter dados no InfluxDB.
 
 ### Env vars
 
@@ -148,11 +149,14 @@ stack (Grafana + InfluxDB) esteja de pé e a run já tenha dados no InfluxDB.
 - `GRAFANA_TOKEN` — **obrigatório**: token de service account de leitura do
   Grafana (ver `GRAFANA_TOKEN` em `.env.example`; gere em Grafana >
   Administration > Service accounts, permissão de leitura basta).
-- `FROM` / `TO` — janela de tempo do render (default: `now-6h` / `now`; aceita
-  epoch ms ou termos relativos do Grafana como `now-30m`). O script é bash
-  puro e não consulta `experiment_runs.started_at/ended_at` no Postgres, por
-  isso o default é uma janela larga — ajuste manualmente para uma janela mais
-  precisa se precisar.
+- `FROM` / `TO` — janela de tempo do render (epoch ms ou termos relativos do
+  Grafana como `now-30m`). Se **ambos** estiverem definidos valem e o CSV nem é
+  lido. Sem eles, a janela vem de `started_at`/`ended_at` da run em
+  `RUN_METRICS_CSV`, com `WINDOW_MARGIN_SECONDS` de folga. Não há mais o default
+  de "últimas 6 h": sem o filtro por `run_id`, uma janela larga misturaria runs.
+- `RUN_METRICS_CSV` — CSV do `export_run_metrics.py` (default:
+  `./out/run_metrics.csv`).
+- `WINDOW_MARGIN_SECONDS` — folga antes/depois da run no gráfico (default: `10`).
 - `OUT_DIR` — diretório base de saída (default: `./out/grafana`).
 
 ### Saída
@@ -169,8 +173,8 @@ falhar (parcial ou totalmente).
 1. `export_run_metrics.py` — gera `out/run_metrics.csv`.
 2. `build_comparison_table.py` — lê esse CSV e gera a tabela comparativa.
    Depende do passo 1 já ter rodado.
-3. `export_grafana.sh` — independente dos outros dois; pode rodar em qualquer
-   ordem, desde que a run já tenha dados no InfluxDB.
+3. `export_grafana.sh` — lê a janela da run em `out/run_metrics.csv`, então depende
+   do passo 1 (ou de `FROM`/`TO` explícitos). Não depende do passo 2.
 
 ## Exemplo de fluxo completo
 
@@ -184,7 +188,7 @@ python scripts/analysis/export_run_metrics.py --all
 # 2) Tabela comparativa plain vs secure a partir do CSV acima
 python scripts/analysis/build_comparison_table.py
 
-# 3) PNGs dos painéis Grafana desta run (independente dos passos acima)
+# 3) PNGs dos painéis Grafana desta run (usa a janela do CSV do passo 1)
 GRAFANA_TOKEN=<token-de-leitura> \
   ./scripts/analysis/export_grafana.sh 3fa85f64-5717-4562-b3fc-2c963f66afa6
 ```

@@ -5,6 +5,9 @@
 # específica, via API de renderização de imagem do Grafana (/render/d-solo/...),
 # conforme docs/specs/data-analysis.md (Fase 5, Entregável 2).
 #
+# A run é recortada pela JANELA DE TEMPO [started_at, ended_at], não por run_id
+# (ADR-0013): o dashboard não filtra mais por run_id.
+#
 # Uso:
 #   ./scripts/analysis/export_grafana.sh <run_id>
 #
@@ -17,18 +20,18 @@
 #                   apps/web/lib/api.ts / apps/web/.env.local.example)
 #   GRAFANA_TOKEN   token de service account de leitura do Grafana (obrigatório;
 #                   ver GRAFANA_TOKEN em .env.example)
-#   FROM            início da janela de tempo do render (default: now-6h)
-#   TO              fim da janela de tempo do render (default: now)
+#   FROM, TO        janela do render (epoch ms ou termos do Grafana como "now-30m").
+#                   Se AMBOS estiverem definidos, valem e o CSV nem é lido.
+#   RUN_METRICS_CSV CSV de export_run_metrics.py de onde sai a janela da run
+#                   (default: ./out/run_metrics.csv)
+#   WINDOW_MARGIN_SECONDS  folga antes/depois da run no gráfico (default: 10)
 #   OUT_DIR         diretório base de saída (default: ./out/grafana)
 #
-# Nota sobre a janela de tempo (from/to): o ideal seria consultar
-# experiment_runs.started_at/ended_at no Postgres para uma janela exata, mas
-# este script é bash puro e não teria como fazer essa consulta sem adicionar
-# uma dependência de `psql` só para isso (fora do espírito "script de linha de
-# comando simples, sem acoplamento" da spec). Por isso o padrão é uma janela
-# larga (-6h/now) que deve cobrir qualquer run recente; ajuste FROM/TO
-# manualmente (valores aceitos pelo Grafana: epoch ms ou termos relativos como
-# "now-30m") se precisar de uma janela mais precisa.
+# Nota sobre a janela de tempo: sem o filtro por run_id, a janela É o que isola a
+# run — uma janela larga misturaria runs diferentes no mesmo gráfico. Por isso,
+# sem FROM/TO, o script lê started_at/ended_at da run no CSV de
+# export_run_metrics.py (rode-o antes; este script é bash puro e não consulta o
+# Postgres). Uma run ainda ativa (sem ended_at) vai até "agora".
 #
 # Nenhum dado é escrito no Grafana/Postgres/InfluxDB — este script só lê (via
 # a API de renderização) e grava arquivos locais em out/grafana/<run_id>/.
@@ -66,8 +69,40 @@ if [[ -z "${GRAFANA_TOKEN:-}" ]]; then
   exit 2
 fi
 
-FROM="${FROM:-now-6h}"
-TO="${TO:-now}"
+# Janela de tempo (ADR-0013): FROM e TO explícitos, ou a janela da run no CSV.
+if [[ -z "${FROM:-}" || -z "${TO:-}" ]]; then
+  RUN_METRICS_CSV="${RUN_METRICS_CSV:-./out/run_metrics.csv}"
+  WINDOW_MARGIN_SECONDS="${WINDOW_MARGIN_SECONDS:-10}"
+  if ! command -v python3 >/dev/null 2>&1; then
+    echo "erro: python3 não encontrado; exporte FROM e TO para dispensar o CSV." >&2
+    exit 2
+  fi
+  if ! WINDOW="$(python3 - "$RUN_METRICS_CSV" "$RUN_ID" "$WINDOW_MARGIN_SECONDS" <<'PY'
+import csv, sys
+from datetime import datetime, timedelta, timezone
+
+path, run_id, margin = sys.argv[1], sys.argv[2], float(sys.argv[3])
+csv.field_size_limit(64 * 1024 * 1024)
+try:
+    rows = list(csv.DictReader(open(path, encoding="utf-8")))
+except OSError as exc:
+    sys.exit(f"não consegui ler {path}: {exc}")
+row = next((r for r in rows if r.get("run_id", "").lower() == run_id.lower()), None)
+if row is None or not row.get("started_at"):
+    sys.exit(f"run {run_id} não encontrada em {path}")
+start = datetime.fromisoformat(row["started_at"])
+end = datetime.fromisoformat(row["ended_at"]) if row.get("ended_at") else datetime.now(timezone.utc)
+delta = timedelta(seconds=margin)
+ms = lambda d: int(d.timestamp() * 1000)
+print(ms(start - delta), ms(end + delta))
+PY
+)"; then
+    echo "erro: não foi possível obter a janela da run ${RUN_ID}." >&2
+    echo "      rode scripts/analysis/export_run_metrics.py antes, ou exporte FROM e TO." >&2
+    exit 2
+  fi
+  read -r FROM TO <<<"$WINDOW"
+fi
 OUT_DIR="${OUT_DIR:-./out/grafana}/${RUN_ID}"
 
 DASHBOARD_UID="stressbed-broker-metrics"
@@ -93,7 +128,7 @@ for i in "${!PANEL_IDS[@]}"; do
   DEST="${OUT_DIR}/${SLUG}.png"
   TMP="${DEST}.tmp"
 
-  URL="${GRAFANA_URL}/render/d-solo/${DASHBOARD_UID}/${DASHBOARD_SLUG}?panelId=${PANEL_ID}&var-run_id=${RUN_ID}&width=1000&height=500&from=${FROM}&to=${TO}"
+  URL="${GRAFANA_URL}/render/d-solo/${DASHBOARD_UID}/${DASHBOARD_SLUG}?panelId=${PANEL_ID}&width=1000&height=500&from=${FROM}&to=${TO}"
 
   echo "==> painel '${SLUG}' (id=${PANEL_ID}) ..." >&2
 
