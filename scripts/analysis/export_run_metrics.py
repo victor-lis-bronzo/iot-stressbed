@@ -390,20 +390,27 @@ def render_flux(
     template: str,
     *,
     bucket: str,
-    run_id: str,
     broker: str,
+    run_id: Optional[str] = None,
     start: Optional[str] = None,
     stop: Optional[str] = None,
 ) -> str:
     """Substitui os placeholders de um bloco Flux, validando antes de compor.
 
     run_id/broker/start/stop são validados aqui (guard anti-injeção) porque a
-    substituição em Flux é composição de string pura.
+    substituição em Flux é composição de string pura. O `run_id` é opcional: só
+    os blocos de telemetria o usam; as métricas do broker são recortadas pela
+    janela de tempo (ADR-0013).
     """
-    assert_safe_run_id(run_id)
     assert_safe_broker(broker)
     rendered = template.replace("__BUCKET__", bucket)
-    rendered = rendered.replace("__RUN_ID__", run_id)
+    if "__RUN_ID__" in rendered:
+        if run_id is None:
+            raise AnalysisError("__RUN_ID__ presente mas nenhum 'run_id' fornecido")
+        assert_safe_run_id(run_id)
+        rendered = rendered.replace("__RUN_ID__", run_id)
+    elif run_id is not None:
+        assert_safe_run_id(run_id)
     rendered = rendered.replace("__BROKER__", broker)
     if "__START__" in rendered:
         if start is None:
@@ -602,8 +609,9 @@ class InfluxReader:
         return rows
 
     def broker_metrics(
-        self, run_id: str, broker: str, start: str, stop: str
+        self, broker: str, start: str, stop: str
     ) -> Dict[str, Optional[Any]]:
+        """Agregados de recurso do broker na janela [start, stop] (ADR-0013)."""
         result: Dict[str, Optional[Any]] = {
             "cpu_usage_percent_avg": None,
             "mem_usage_bytes_avg": None,
@@ -617,7 +625,6 @@ class InfluxReader:
             flux = render_flux(
                 load_flux_block(self._broker_flux, block_id),
                 bucket=self._bucket,
-                run_id=run_id,
                 broker=broker,
                 start=start,
                 stop=stop,
@@ -632,7 +639,6 @@ class InfluxReader:
         net_flux = render_flux(
             load_flux_block(self._broker_flux, "net_rate_mean"),
             bucket=self._bucket,
-            run_id=run_id,
             broker=broker,
             start=start,
             stop=stop,
@@ -646,7 +652,6 @@ class InfluxReader:
         restart_flux = render_flux(
             load_flux_block(self._broker_flux, "restart_count_last"),
             bucket=self._bucket,
-            run_id=run_id,
             broker=broker,
             start=start,
             stop=stop,
@@ -683,12 +688,11 @@ class InfluxReader:
         }
 
     def container_transitions(
-        self, run_id: str, broker: str, start: str, stop: str
+        self, broker: str, start: str, stop: str
     ) -> List[Dict[str, Any]]:
         flux = render_flux(
             load_flux_block(self._transitions_flux, "container_status_series"),
             bucket=self._bucket,
-            run_id=run_id,
             broker=broker,
             start=start,
             stop=stop,
@@ -799,7 +803,7 @@ def build_run_record(
         start_lit = _to_rfc3339(window_start_dt)
         stop_lit = _to_rfc3339(window_stop_dt)
         record.update(
-            influx.broker_metrics(run_id, mode, start_lit, stop_lit)
+            influx.broker_metrics(mode, start_lit, stop_lit)
         )
     else:
         record.update(
@@ -822,7 +826,6 @@ def build_run_record(
             attack_finish + timedelta(seconds=recovery_read_margin_seconds),
         )
         transitions = influx.container_transitions(
-            run_id,
             mode,
             _to_rfc3339(attack_start),
             _to_rfc3339(margin_stop),

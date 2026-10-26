@@ -2,7 +2,7 @@
 
 import { useActiveRun } from '@/hooks/useExperimentRuns';
 import { useDosRunHistory, useDosRunResult, type RunKpi } from '@/hooks/useDosMetrics';
-import { GRAFANA_URL } from '@/lib/api';
+import { brokerMetricsUrl, grafanaRunWindow } from '@/lib/grafana';
 
 function formatPercent(value: number | null | undefined): string {
   return value === null || value === undefined ? '—' : `${(value * 100).toFixed(1)}%`;
@@ -77,7 +77,7 @@ export default function AttackResult() {
 
       {relevantRunId ? (
         <a
-          href={`${GRAFANA_URL}/d/stressbed-broker-metrics/broker-metrics?var-run_id=${relevantRunId}&from=now-15m&to=now`}
+          href={brokerMetricsUrl(grafanaRunWindow(kpi, activeRun))}
           target="_blank"
           rel="noopener noreferrer"
           className="mt-4 inline-block text-sm text-muted hover:text-primary underline"

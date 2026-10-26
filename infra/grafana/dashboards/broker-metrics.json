@@ -8,22 +8,7 @@
   "editable": false,
   "refresh": "10s",
   "time": { "from": "now-15m", "to": "now" },
-  "templating": {
-    "list": [
-      {
-        "name": "run_id",
-        "label": "Run ID",
-        "type": "query",
-        "datasource": { "type": "influxdb", "uid": "stressbed-influxdb" },
-        "query": "import \"influxdata/influxdb/schema\"\nschema.tagValues(bucket: v.defaultBucket, tag: \"run_id\")",
-        "refresh": 1,
-        "includeAll": true,
-        "multi": true,
-        "current": { "text": "All", "value": "$__all" },
-        "sort": 3
-      }
-    ]
-  },
+  "templating": { "list": [] },
   "annotations": {
     "list": [
       {
@@ -43,7 +28,7 @@
       "gridPos": { "h": 3, "w": 24, "x": 0, "y": 0 },
       "options": {
         "mode": "markdown",
-        "content": "`broker_metrics` é gravado pelo **telegraf** (`inputs.docker`), lendo os cgroups direto do socket do Docker — caminho **independente do nestjs-api** (ADR-0003). Esta série deve continuar sendo atualizada mesmo com a API fora do ar durante um ataque de Track B. Filtre por `run_id` para isolar uma execução de experimento.\n\n_Rede/blkio: em ambientes Docker Desktop (Windows/Mac) esses contadores por container podem vir vazios; em host Linux nativo (ambiente dos experimentos) devem popular normalmente._"
+        "content": "`broker_metrics` é gravado pelo **telegraf** (`inputs.docker`), lendo os cgroups direto do socket do Docker — caminho **independente do nestjs-api** (ADR-0003). Esta série deve continuar sendo atualizada mesmo com a API fora do ar durante um ataque de Track B. Para isolar uma execução, ajuste o intervalo de tempo ao da run: só existe uma run ativa por vez, então a janela [início, fim] a identifica (ADR-0013).\n\n_Rede/blkio: em ambientes Docker Desktop (Windows/Mac) esses contadores por container podem vir vazios; em host Linux nativo (ambiente dos experimentos) devem popular normalmente._"
       }
     },
     {
@@ -59,7 +44,7 @@
       "targets": [
         {
           "refId": "A",
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"broker_metrics\" and r._field == \"usage_percent\" and r.cpu == \"cpu-total\")\n  |> filter(fn: (r) => r.run_id =~ /^${run_id:regex}$/)\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_value\", \"broker\"])\n  |> group(columns: [\"broker\"])"
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"broker_metrics\" and r._field == \"usage_percent\" and r.cpu == \"cpu-total\")\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_value\", \"broker\"])\n  |> group(columns: [\"broker\"])"
         }
       ]
     },
@@ -76,7 +61,7 @@
       "targets": [
         {
           "refId": "A",
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"broker_metrics\" and (r._field == \"usage\" or r._field == \"limit\"))\n  |> filter(fn: (r) => r.run_id =~ /^${run_id:regex}$/)\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_value\", \"_field\", \"broker\"])\n  |> group(columns: [\"broker\", \"_field\"])"
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"broker_metrics\" and (r._field == \"usage\" or r._field == \"limit\"))\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\n  |> keep(columns: [\"_time\", \"_value\", \"_field\", \"broker\"])\n  |> group(columns: [\"broker\", \"_field\"])"
         }
       ]
     },
@@ -94,7 +79,7 @@
       "targets": [
         {
           "refId": "A",
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"broker_metrics\" and (r._field == \"rx_bytes\" or r._field == \"tx_bytes\"))\n  |> filter(fn: (r) => r.run_id =~ /^${run_id:regex}$/)\n  |> derivative(unit: 1s, nonNegative: true, columns: [\"_value\"])\n  |> keep(columns: [\"_time\", \"_value\", \"_field\", \"broker\"])\n  |> group(columns: [\"broker\", \"_field\"])"
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"broker_metrics\" and (r._field == \"rx_bytes\" or r._field == \"tx_bytes\"))\n  |> derivative(unit: 1s, nonNegative: true, columns: [\"_value\"])\n  |> keep(columns: [\"_time\", \"_value\", \"_field\", \"broker\"])\n  |> group(columns: [\"broker\", \"_field\"])"
         }
       ]
     },
@@ -108,7 +93,7 @@
       "targets": [
         {
           "refId": "A",
-          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"broker_metrics\" and r._field == \"restart_count\")\n  |> filter(fn: (r) => r.run_id =~ /^${run_id:regex}$/)\n  |> last()\n  |> keep(columns: [\"broker\", \"container_status\", \"container_name\", \"run_id\", \"_value\"])\n  |> rename(columns: {_value: \"restart_count\"})"
+          "query": "from(bucket: v.defaultBucket)\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r._measurement == \"broker_metrics\" and r._field == \"restart_count\")\n  |> last()\n  |> keep(columns: [\"broker\", \"container_status\", \"container_name\", \"_value\"])\n  |> rename(columns: {_value: \"restart_count\"})"
         }
       ]
     }

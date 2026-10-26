@@ -107,7 +107,8 @@ o porquê de o resto do backend ser modular pragmático em vez de clean/hexagona
   timestamp em nanossegundos estritamente crescente: um ponto é único por (tags,
   timestamp), e em milissegundo as mensagens de um flood se sobrescreviam
   ([[ADR-0011]]).
-- measurement `broker_metrics` — tags: `run_id`, `broker`. Escrito exclusivamente por
+- measurement `broker_metrics` — tag: `broker` (sem `run_id`: a run é identificada pela
+  janela de tempo [início, fim], [[ADR-0013]]). Escrito exclusivamente por
   telegraf (input `docker`), nunca pelo `nestjs-api` ([[ADR-0003]]).
 - measurement `capture_meta` — eventos de falha/reconexão do `capture` (ex: broker caiu
   durante um flood), para que a ausência de dados seja distinguível de "sem mensagens".
