@@ -68,11 +68,14 @@ a lista completa):
 
 - **Postgres** (lê `experiment_runs` + `run_kpis`): `POSTGRES_HOST` (default
   `localhost`), `POSTGRES_PORT` (default `5432`), `POSTGRES_USER` (default
-  `stressbed`), `POSTGRES_PASSWORD`, `POSTGRES_DB` (default `stressbed`).
+  `stressbed`), `POSTGRES_PASSWORD` (default `stressbed`), `POSTGRES_DB`
+  (default `stressbed`).
 - **InfluxDB** (lê `broker_metrics` + `telemetry`): `INFLUXDB_URL` (default
-  `http://localhost:8086`), `INFLUXDB_TOKEN` (obrigatório — sem ele o script
-  falha antes de conectar), `INFLUXDB_ORG` (default `stressbed`),
-  `INFLUXDB_BUCKET` (default `stressbed`).
+  `http://localhost:8086`), `INFLUXDB_TOKEN` (default `dev-only-influx-token`),
+  `INFLUXDB_ORG` (default `stressbed`), `INFLUXDB_BUCKET` (default `stressbed`).
+  Os defaults são os de laboratório do `docker-compose.yml` ([[ADR-0008]]): sem
+  `.env` o script funciona contra a stack padrão; exporte as variáveis só se
+  você as trocou.
 - `TELEGRAF_INTERVAL` — opcional, só usada para calcular o default de
   `--recovery-read-margin-seconds` (mesmo formato de duração do telegraf, ex.
   `5s`).

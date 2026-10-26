@@ -387,6 +387,28 @@ maior que isso na prática, quebrar mais). "Pronto quando" é sempre verificáve
   flush de 60s do cliente InfluxDB e consultar o measurement `telemetry`;
   `GET /metrics/runs` autenticado retorna 200.
 
+### Eliminar passos manuais do bootstrap no Ubuntu
+- Pronto quando: numa máquina Ubuntu nova, `docker compose up` sem `.env` deixa o
+  `telegraf` lendo o socket (série `broker_metrics` com os dois brokers), os
+  certificados em `infra/mosquitto/secure/certs/` pertencem ao usuário do host, e
+  `./scripts/run-experiment.sh` executa em clone limpo. Um socket ilegível passa a
+  marcar o `telegraf` como `unhealthy`. Ver issue #25, [[ADR-0010]] e a atualização
+  do [[ADR-0008]].
+- Depende de: Corrigir token do InfluxDB no api e healthcheck do web no compose.
+- Tamanho: P.
+- Teste: manual — `docker exec stressbed-telegraf id` (uid 0), `docker logs` sem
+  `permission denied`, `broker_metrics` no InfluxDB após ~30s; com
+  `TELEGRAF_USER=telegraf:0` o healthcheck marca `unhealthy`; `ls -l` dos certs.
+
+### Ferramentas de host com os defaults do compose
+- Pronto quando: `export_run_metrics.py` e `apps/api/test/capture.integration.spec.ts`
+  rodam sem nenhuma variável exportada e sem `.env`, usando os mesmos defaults de
+  laboratório do `docker-compose.yml`.
+- Depende de: Eliminar passos manuais do bootstrap no Ubuntu.
+- Tamanho: P.
+- Teste: `npm run test:integration` em `apps/api` e
+  `export_run_metrics.py --all` com o ambiente vazio.
+
 ### Tornar o exportador robusto a runs de borda e gravar params das runs
 - Pronto quando: `export_run_metrics.py --all` exporta uma run de duração zero e uma
   de payload gigante (1 MB) sem abortar, e uma run que falha não descarta as demais

@@ -14,7 +14,9 @@ e alternativas descartadas vivem em `docs/adr/`; este arquivo é a visão consol
 - **InfluxDB + Grafana**: série temporal — telemetria capturada e métricas de saúde do
   broker/host ([[ADR-0001]]).
 - **Telegraf (input `docker`)**: coletor independente de métricas de container/host,
-  escrevendo direto no InfluxDB, sem passar pelo NestJS ([[ADR-0003]]).
+  escrevendo direto no InfluxDB, sem passar pelo NestJS ([[ADR-0003]]). Roda como root
+  no container, com o socket do Docker read-only, para não depender do GID do host
+  ([[ADR-0010]]).
 - **Mosquitto** (dois brokers: plain 1883 sem TLS/auth, secure 8883 TLS+mTLS+senha):
   alvo e grupo de controle ([[ADR-0007]]).
 - **Docker Compose** com limites de cgroups nativos (cpuset, memory, pids-limit) para

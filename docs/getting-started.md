@@ -81,8 +81,9 @@ As variáveis estão agrupadas por serviço em `.env.example`, entre outras:
 - **InfluxDB**: `INFLUXDB_TOKEN`, `INFLUXDB_ORG`, `INFLUXDB_BUCKET`.
 - **Grafana**: `GRAFANA_ADMIN_USER`/`GRAFANA_ADMIN_PASSWORD`, `GRAFANA_TOKEN` (usado
   pelos scripts de análise da Fase 5, não pelo compose).
-- **Telegraf**: `TELEGRAF_INTERVAL`, `TELEGRAF_DOCKER_GID` (GID do socket do Docker no
-  host).
+- **Telegraf**: `TELEGRAF_INTERVAL`, `TELEGRAF_USER` (default `0:0`, funciona em qualquer
+  host sem configurar nada — [[ADR-0010]]; use `telegraf:<GID do socket>` para o modo
+  menos privilegiado).
 - **Isolamento de recursos** ([[ADR-0004]]): `STACK_CPUSET`, `BROKER_PLAIN_CPUSET`/
   `BROKER_SECURE_CPUSET`, `ATTACKER_CPUSET`, e os respectivos `_CPUS`/`_MEMORY`/
   `_PIDS` — mantêm broker, atacante e stack de observação em núcleos disjuntos.
