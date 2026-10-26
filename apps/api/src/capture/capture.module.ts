@@ -94,8 +94,13 @@ function captureProvider(
 const telemetrySinkProvider: Provider = {
   provide: TELEMETRY_SINK,
   inject: [ConfigService],
-  useFactory: (config: ConfigService) =>
-    new InfluxdbTelemetrySinkAdapter({
+  useFactory: (config: ConfigService) => {
+    // Opcional: vazio/ausente/não-numérico => undefined, mantendo o default de
+    // 60s da lib em prod. O smoke test de CI define um valor baixo para flush.
+    const flushIntervalRaw = config.get<string>('INFLUX_FLUSH_INTERVAL_MS');
+    const flushIntervalMs = Number(flushIntervalRaw);
+
+    return new InfluxdbTelemetrySinkAdapter({
       url: config.get<string>(
         'INFLUXDB_URL',
         `http://localhost:${config.get('INFLUXDB_PORT', 8086)}`,
@@ -103,7 +108,15 @@ const telemetrySinkProvider: Provider = {
       token: config.get<string>('INFLUXDB_TOKEN', ''),
       org: config.get<string>('INFLUXDB_ORG', 'stressbed'),
       bucket: config.get<string>('INFLUXDB_BUCKET', 'stressbed'),
-    }),
+      flushIntervalMs:
+        flushIntervalRaw !== undefined &&
+        flushIntervalRaw !== '' &&
+        Number.isFinite(flushIntervalMs) &&
+        flushIntervalMs > 0
+          ? flushIntervalMs
+          : undefined,
+    });
+  },
 };
 
 @Module({
