@@ -370,6 +370,8 @@ services:
       INFLUXDB_TOKEN: ${INFLUXDB_TOKEN:-dev-only-influx-token}
       INFLUXDB_ORG: ${INFLUXDB_ORG:-stressbed}
       INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-stressbed}
+      # Default vazio mantém o flush de 60s da lib em prod; o smoke CI define um valor baixo.
+      INFLUX_FLUSH_INTERVAL_MS: ${INFLUX_FLUSH_INTERVAL_MS:-}
       # Runner HTTP do attacker (ADR-0012): o api orquestra a run e dispara o
       # ataque por aqui; nunca toca no Docker.
       ATTACKER_RUNNER_URL: ${ATTACKER_RUNNER_URL:-http://attacker:8080}

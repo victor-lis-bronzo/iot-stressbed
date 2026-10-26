@@ -9,6 +9,9 @@ export interface InfluxSinkConfig {
   token: string;
   org: string;
   bucket: string;
+  // Opcional: só é usado para forçar flush rápido no smoke test de CI. Em prod
+  // fica indefinido, preservando o default de 60s da lib (@influxdata/influxdb-client).
+  flushIntervalMs?: number;
 }
 
 export class InfluxdbTelemetrySinkAdapter implements TelemetrySinkPort {
@@ -19,10 +22,7 @@ export class InfluxdbTelemetrySinkAdapter implements TelemetrySinkPort {
   private readonly nextNanos = createMonotonicNanos();
 
   constructor(config: InfluxSinkConfig) {
-    this.writeApi = new InfluxDB({
-      url: config.url,
-      token: config.token,
-    }).getWriteApi(config.org, config.bucket, 'ns', {
+    const writeOptions: Parameters<InfluxDB['getWriteApi']>[3] = {
       writeFailed: (error, lines, attempt) => {
         this.logger.error(
           `InfluxDB write failed (attempt ${attempt}, ${lines.length} line(s)): ${error}`,
@@ -31,7 +31,22 @@ export class InfluxdbTelemetrySinkAdapter implements TelemetrySinkPort {
       writeSuccess: (lines) => {
         this.logger.debug(`InfluxDB write succeeded (${lines.length} line(s))`);
       },
-    });
+    };
+
+    // Só sobrescreve o default de 60s da lib quando um valor válido é fornecido
+    // (CI força flush rápido); em prod `flushIntervalMs` fica indefinido.
+    if (
+      typeof config.flushIntervalMs === 'number' &&
+      Number.isFinite(config.flushIntervalMs) &&
+      config.flushIntervalMs > 0
+    ) {
+      writeOptions.flushInterval = config.flushIntervalMs;
+    }
+
+    this.writeApi = new InfluxDB({
+      url: config.url,
+      token: config.token,
+    }).getWriteApi(config.org, config.bucket, 'ns', writeOptions);
   }
 
   async writePoint(point: TelemetryPoint): Promise<void> {
