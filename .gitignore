@@ -4,7 +4,11 @@
 .env.*.local
 
 # Certificados TLS gerados por scripts/gen-certs.sh (nunca versionados)
-infra/mosquitto/secure/certs/
+# O .gitkeep faz o diretório existir no clone, com a posse do usuário: sem ele o
+# Docker cria o bind mount como root:root e o gen-certs.sh não tem a quem devolver
+# os arquivos (ADR-0010).
+infra/mosquitto/secure/certs/*
+!infra/mosquitto/secure/certs/.gitkeep
 
 # Credenciais/ACL do broker secure geradas em runtime pelo entrypoint
 infra/mosquitto/secure/auth/

@@ -122,6 +122,12 @@ JSON de resultado de cada ataque em stdout, sem tentar registrá-lo via
 ./scripts/run-experiment.sh malformed-payload plain -- --mode giant --size-bytes 10000000
 ```
 
+Os argumentos após o `--` também são gravados como `params` da run (objeto
+`{flag: valor}`, p. ex. `{"connections": 200}`). É isso que faz a tabela comparativa
+(`scripts/analysis/README.md`) parear `plain` e `secure` só quando os parâmetros
+são os mesmos: `--connections 200` e `--connections 50` são cenários distintos. Para
+comparar plain com secure, **use exatamente os mesmos argumentos nos dois modos**.
+
 Repetir cada comando trocando `plain` por `secure` mede o delta de overhead
 de TLS (tarefa seguinte do roadmap). Ao contrário do `injector.py`, os 3
 scripts de Track B não usam o exit code para sinalizar um achado de

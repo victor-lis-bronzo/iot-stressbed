@@ -85,3 +85,19 @@ que contrariavam o objetivo deste ADR:
 - **healthcheck do `nextjs-web`:** consultava `/`, que responde 307 para
   `http://localhost:3002/login`; o `wget` seguia o redirect e `localhost` resolve
   para `::1` no alpine, onde o Next não escuta. Passou a consultar `/login`.
+
+## Atualização: passos manuais que sobravam no Ubuntu (issue #25)
+A bateria de testes sobre as imagens publicadas ainda achou dois passos manuais
+escondidos atrás do `docker compose up` sem `.env`:
+- **`telegraf` sem acesso ao socket do Docker:** o default `TELEGRAF_DOCKER_GID=0`
+  só vale onde o socket é `root:root`; no Ubuntu a série `broker_metrics` ficava
+  vazia e o healthcheck não percebia. Passou a rodar como root dentro do container,
+  com healthcheck que testa a leitura do socket — ver [[ADR-0010]].
+- **Certificados `root`-owned no host:** o container `certs` gravava como root no
+  bind mount, e o pesquisador não lia as chaves (teste de integração, cópia para o
+  ESP32). `scripts/gen-certs.sh` devolve a posse ao dono do diretório montado.
+
+Também alinhados ao espírito deste ADR: `export_run_metrics.py` e o teste de
+integração do `capture` passam a usar os mesmos defaults de laboratório do compose
+quando as variáveis não estão no ambiente, e `run-experiment.sh`/`capture-pcap.sh`
+ganharam o bit de execução no git.
