@@ -578,6 +578,11 @@ services:
       GF_RENDERING_SERVER_URL: http://grafana-image-renderer:8081/render
       GF_RENDERING_CALLBACK_URL: http://grafana:3000/
       GF_LOG_FILTERS: rendering:debug
+      # export_grafana.sh (#31) renderiza os painéis em paralelo. O default do
+      # Grafana para este limite é 30 (não estrangula os 4 painéis), mas deixá-lo
+      # explícito e overridável documenta a folga e permite afrouxar/apertar sem
+      # editar o compose.
+      GF_RENDERING_CONCURRENT_RENDER_REQUEST_LIMIT: ${GRAFANA_RENDER_CONCURRENCY:-8}
 
     volumes:
       - grafana-data:/var/lib/grafana
@@ -620,6 +625,15 @@ services:
 
     environment:
       ENABLE_METRICS: "false"
+      # Concorrência de renderização (#31): o export_grafana.sh dispara os 4
+      # painéis em paralelo. O modo "clustered"/"browser" deixa o renderer
+      # atender renders simultâneos (um browser por render até o teto), em vez
+      # de serializar. O teto acompanha o nº de painéis e é overridável; num
+      # cpuset de poucos núcleos, reduza RENDERER_MAX_CONCURRENCY para não
+      # saturar a CPU com Chromium.
+      RENDERING_MODE: ${RENDERER_MODE:-clustered}
+      RENDERING_CLUSTERING_MODE: ${RENDERER_CLUSTERING_MODE:-browser}
+      RENDERING_CLUSTERING_MAX_CONCURRENCY: ${RENDERER_MAX_CONCURRENCY:-4}
 
     networks:
       - stressbed-net

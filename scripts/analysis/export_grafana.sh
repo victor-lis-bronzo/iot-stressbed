@@ -26,6 +26,18 @@
 #                   (default: ./out/run_metrics.csv)
 #   WINDOW_MARGIN_SECONDS  folga antes/depois da run no gráfico (default: 10)
 #   OUT_DIR         diretório base de saída (default: ./out/grafana)
+#   RENDER_CONCURRENCY  nº máximo de painéis renderizados em paralelo (default: 4).
+#                   Os 4 painéis são independentes; renderizá-los ao mesmo tempo
+#                   corta o tempo total (~244s sequencial) para perto do painel
+#                   mais lento. Use 1 para voltar ao comportamento sequencial.
+#   RENDER_SCALE    fator de escala do render do Grafana; quando definido, vira
+#                   &scale=... na URL (default: vazio = comportamento padrão do
+#                   Grafana, sem o parâmetro).
+#   RENDER_TIMEOUT  timeout de render do lado do servidor Grafana, em segundos;
+#                   quando definido, vira &timeout=... na URL (default: vazio =
+#                   sem o parâmetro).
+#   CURL_MAX_TIME   teto de tempo (segundos) de cada chamada curl via --max-time,
+#                   para um render travado não bloquear o script (default: 120).
 #
 # Nota sobre a janela de tempo: sem o filtro por run_id, a janela É o que isola a
 # run — uma janela larga misturaria runs diferentes no mesmo gráfico. Por isso,
@@ -120,27 +132,57 @@ echo "==> exportando painéis do dashboard '${DASHBOARD_UID}' para run ${RUN_ID}
 echo "==> janela de tempo: from=${FROM} to=${TO} (ver nota no cabeçalho deste script)" >&2
 echo "==> saída: ${OUT_DIR}/" >&2
 
-FAILED=0
+# Knobs de render (ver cabeçalho). RENDER_SCALE/RENDER_TIMEOUT só entram na URL
+# quando definidos, para preservar o comportamento padrão do Grafana.
+RENDER_CONCURRENCY="${RENDER_CONCURRENCY:-4}"
+RENDER_SCALE="${RENDER_SCALE:-}"
+RENDER_TIMEOUT="${RENDER_TIMEOUT:-}"
+CURL_MAX_TIME="${CURL_MAX_TIME:-120}"
+if ! [[ "$RENDER_CONCURRENCY" =~ ^[0-9]+$ ]] || [[ "$RENDER_CONCURRENCY" -lt 1 ]]; then
+  RENDER_CONCURRENCY=1
+fi
 
-for i in "${!PANEL_IDS[@]}"; do
-  PANEL_ID="${PANEL_IDS[$i]}"
-  SLUG="${PANEL_SLUGS[$i]}"
-  DEST="${OUT_DIR}/${SLUG}.png"
-  TMP="${DEST}.tmp"
+# Sufixo opcional da URL de render, montado uma vez só. Usamos if (e não
+# `[[ ... ]] && ...`) para não disparar o `set -e` quando a env está vazia.
+RENDER_EXTRA=""
+if [[ -n "$RENDER_SCALE" ]]; then
+  RENDER_EXTRA+="&scale=${RENDER_SCALE}"
+fi
+if [[ -n "$RENDER_TIMEOUT" ]]; then
+  RENDER_EXTRA+="&timeout=${RENDER_TIMEOUT}"
+fi
 
-  URL="${GRAFANA_URL}/render/d-solo/${DASHBOARD_UID}/${DASHBOARD_SLUG}?panelId=${PANEL_ID}&width=1000&height=500&from=${FROM}&to=${TO}"
+# Diretório de marcadores de status, um arquivo por painel ("ok"/"erro"). Como
+# os jobs rodam em subshells paralelas, não dá para somar um FAILED compartilhado
+# em memória; cada job grava seu status e o pai faz a apuração ao final.
+STATUS_DIR="$(mktemp -d)"
+trap 'rm -rf "$STATUS_DIR"' EXIT
+
+# Renderiza e valida UM painel, de forma independente e atômica (tmp -> mv).
+# Toda a validação original (HTTP 200, tamanho mínimo e magic bytes do PNG) é
+# feita aqui dentro; o job sempre retorna 0 e registra "ok"/"erro" no marcador.
+render_panel() {
+  local i="$1"
+  local PANEL_ID="${PANEL_IDS[$i]}"
+  local SLUG="${PANEL_SLUGS[$i]}"
+  local DEST="${OUT_DIR}/${SLUG}.png"
+  local TMP="${DEST}.tmp"
+  local STATUS_FILE="${STATUS_DIR}/${i}"
+
+  local URL="${GRAFANA_URL}/render/d-solo/${DASHBOARD_UID}/${DASHBOARD_SLUG}?panelId=${PANEL_ID}&width=1000&height=500&from=${FROM}&to=${TO}${RENDER_EXTRA}"
 
   echo "==> painel '${SLUG}' (id=${PANEL_ID}) ..." >&2
 
-  HTTP_STATUS="$(curl -sS -o "$TMP" -w '%{http_code}' \
+  local HTTP_STATUS
+  HTTP_STATUS="$(curl -sS --max-time "${CURL_MAX_TIME}" -o "$TMP" -w '%{http_code}' \
     -H "Authorization: Bearer ${GRAFANA_TOKEN}" \
     "$URL" || echo "000")"
 
   if [[ "$HTTP_STATUS" != "200" ]]; then
     echo "erro: falha ao renderizar painel '${SLUG}' (HTTP ${HTTP_STATUS}). URL: ${URL}" >&2
     rm -f "$TMP"
-    FAILED=1
-    continue
+    echo "erro" > "$STATUS_FILE"
+    return 0
   fi
 
   # Confirma que a resposta é de fato um PNG antes de promover o arquivo:
@@ -148,18 +190,48 @@ for i in "${!PANEL_IDS[@]}"; do
   # alguns cenários de proxy/autenticação. Checamos a assinatura binária do
   # PNG (primeiros 8 bytes) e um tamanho mínimo, em vez de confiar só no
   # Content-Type (que pode não ser reportado por todos os proxies).
+  local SIZE MAGIC
   SIZE="$(wc -c < "$TMP" | tr -d '[:space:]')"
   MAGIC="$(head -c 8 "$TMP" | od -An -tx1 | tr -d ' \n')"
 
   if [[ "$SIZE" -lt 1024 || "$MAGIC" != "89504e470d0a1a0a" ]]; then
     echo "erro: resposta do painel '${SLUG}' não é um PNG válido (tamanho=${SIZE} bytes)." >&2
     rm -f "$TMP"
-    FAILED=1
-    continue
+    echo "erro" > "$STATUS_FILE"
+    return 0
   fi
 
   mv "$TMP" "$DEST"
   echo "==> ok: ${DEST}" >&2
+  echo "ok" > "$STATUS_FILE"
+  return 0
+}
+
+echo "==> renderizando ${#PANEL_IDS[@]} painéis com concorrência de até ${RENDER_CONCURRENCY} ..." >&2
+
+# Dispara os jobs em paralelo com concorrência limitada: lança até
+# RENDER_CONCURRENCY de uma vez e, ao atingir o teto, espera um terminar
+# (`wait -n`) antes de lançar o próximo.
+running=0
+for i in "${!PANEL_IDS[@]}"; do
+  render_panel "$i" &
+  running=$((running + 1))
+  if [[ "$running" -ge "$RENDER_CONCURRENCY" ]]; then
+    # `|| true`: se um job morrer por falha inesperada (set -e dentro da
+    # subshell), não queremos abortar o despacho dos demais aqui — a apuração
+    # final por marcador ("ok" ausente => falha) já contabiliza isso e sai 1.
+    wait -n || true
+    running=$((running - 1))
+  fi
+done
+wait
+
+# Apuração final: qualquer painel sem marcador "ok" conta como falha.
+FAILED=0
+for i in "${!PANEL_IDS[@]}"; do
+  if [[ "$(cat "${STATUS_DIR}/${i}" 2>/dev/null || true)" != "ok" ]]; then
+    FAILED=1
+  fi
 done
 
 if [[ "$FAILED" -ne 0 ]]; then
