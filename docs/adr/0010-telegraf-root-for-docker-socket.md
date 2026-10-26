@@ -50,8 +50,9 @@ completo na máquina do laboratório.
   `TELEGRAF_DOCKER_GID` correto, têm os KPIs de recurso vazios** (série
   `broker_metrics` ausente). Não há como recuperá-los; as runs usadas na análise
   precisam ser refeitas.
-- `scripts/run-experiment.sh` recria o `telegraf` a cada run para propagar o
-  `RUN_ID`; com o default novo, essa recriação já nasce com acesso ao socket.
+- `scripts/run-experiment.sh` recriava o `telegraf` a cada run para propagar o
+  `RUN_ID`; com o default novo, essa recriação já nascia com acesso ao socket. O
+  [[ADR-0013]] eliminou a recriação: o `telegraf` não é mais recriado por run.
 - O mesmo princípio vale para os certificados: `scripts/gen-certs.sh` devolve a
   posse dos arquivos ao dono do diretório montado quando roda como root no
   container `certs`, para que o pesquisador leia as chaves sem `sudo`.

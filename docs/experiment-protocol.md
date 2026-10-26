@@ -94,11 +94,11 @@ substituídos pela primeira execução real do protocolo acima>`
 
 ## Uso de `scripts/run-experiment.sh` (Track A — injeção)
 
-Ver cabeçalho do próprio script para o uso detalhado. Resumo: o script faz
-login, inicia uma run (`mode=plain|secure`, `attackType=injection`), dispara
-`attacker/python/injector.py` contra o broker escolhido, registra o resultado
-da injeção como KPI da run (`POST /metrics/runs/:runId/injection-result`) e
-encerra a run — mesmo se o injetor falhar (trap `EXIT`).
+Ver cabeçalho do próprio script para o uso detalhado. Resumo: o script faz login e
+chama `POST /experiments/runs/launch` (`mode=plain|secure`,
+`attackType=injection`); é o api que inicia a run, dispara o ataque no container
+`attacker`, registra o resultado da injeção como KPI da run e encerra a run — mesmo
+se o injetor falhar ([[ADR-0012]]). O script só espera a run terminar e imprime o KPI.
 
 ## Uso de `scripts/run-experiment.sh` (Track B — disponibilidade/DoS)
 

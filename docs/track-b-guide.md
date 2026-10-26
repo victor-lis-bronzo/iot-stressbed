@@ -138,10 +138,11 @@ que rodou, não substitui o comando. Como a própria UI descreve:
 ## Passo 5 — Acompanhar métricas no Grafana
 
 `http://localhost:3001`, dashboard "Broker Metrics" (uid
-`stressbed-broker-metrics`, cobre Track A e Track B via telegraf), filtrando
-pela variável `run_id` da execução. A tela `/ataques` já linka direto para o
-Grafana com o `run_id` certo assim que o ataque termina. Também dá para abrir
-o dashboard manualmente e trocar a variável `run_id` no topo.
+`stressbed-broker-metrics`, cobre Track A e Track B via telegraf), no intervalo de
+tempo da execução — o dashboard não filtra mais por `run_id` ([[ADR-0013]]). A tela
+`/ataques` já linka direto para o Grafana na janela certa assim que o ataque termina.
+Também dá para abrir o dashboard manualmente e ajustar o intervalo no topo (início e
+fim da run, que o histórico mostra).
 
 ## Avançado — chamando a API de experiments diretamente
 
@@ -174,16 +175,19 @@ Endpoints:
 - `POST /experiments/runs/stop` — 200, encerra a run ativa se houver.
 - `GET /experiments/runs/active` — 200, retorna a run ativa ou `null`.
 
-Quem usa a API direta ainda precisa disparar o ataque manualmente no
-container `attacker`:
+Quem usa a API direta chama um único endpoint, o mesmo que o `run-experiment.sh`
+usa ([[ADR-0012]]):
 
 ```bash
-docker compose exec -T attacker python <script> --target <mode> ...
+curl -X POST http://localhost:3000/experiments/runs/launch \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"mode":"plain","attackType":"connection-flood","params":{"connections":200}}'
 ```
 
-e registrar o KPI via `POST /metrics/runs/<run_id>/<attackType>-result` — é
-isso que `run-experiment.sh` faz nos bastidores. Normalmente só vale a pena
-ir por esse caminho se for orquestrar de um jeito diferente do script.
+O api cria a run (409 se já há uma ativa), manda o ataque ao container `attacker`,
+registra o KPI e encerra a run; responde `202` na hora, e o andamento sai de
+`GET /experiments/runs/active` e `GET /metrics/runs/<run_id>`. `params` é o objeto
+`{flag: valor}` do ataque. Não há mais o que disparar à mão no `attacker`.
 
 ## Próximo passo
 

@@ -121,8 +121,8 @@ iot-stressbed/
 ## Métricas e observabilidade
 
 - **Grafana**: dashboard `broker-metrics` (CPU%, memória, rede, status/restart
-  do container), filtrável por `run_id`. O console de ataque do frontend
-  linka diretamente para o painel filtrado na janela de tempo do run.
+  do container), recortado pelo intervalo de tempo da run ([[ADR-0013]]). O console de
+  ataque do frontend linka diretamente para o painel na janela de tempo do run.
 - **InfluxDB**: measurements `telemetry` (dados de domínio do sensor),
   `broker_metrics` (saúde do broker/host, escrito pelo Telegraf,
   independente do backend) e `capture_meta` (eventos de falha/reconexão).

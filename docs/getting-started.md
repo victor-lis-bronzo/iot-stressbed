@@ -172,8 +172,8 @@ Retorna `{"access_token": "..."}`.
 
 **Grafana**: `http://localhost:3001`, login `admin`/`admin` (via
 `GRAFANA_ADMIN_USER`/`GRAFANA_ADMIN_PASSWORD` — troque em produção). O dashboard
-"Broker Metrics (Track A/B — telegraf)" já vem provisionado automaticamente,
-filtrável por `run_id`.
+"Broker Metrics (Track A/B — telegraf)" já vem provisionado automaticamente. Para ver
+uma run, ajuste o intervalo de tempo do dashboard ao dela ([[ADR-0013]]).
 
 ## Rodar os testes automatizados
 

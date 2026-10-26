@@ -69,6 +69,6 @@ POST /experiments/runs/launch  (api, JWT)
   script era interrompido.
 - `docker compose exec attacker python ...` continua funcionando para depuração, mas
   fora de uma run corrompe os KPIs, como já era.
-- A atribuição das métricas do broker a cada run (hoje feita recriando o Telegraf com
-  o `RUN_ID`) é um ponto separado: o api não tem Docker para recriá-lo. Entregue à
-  parte, por janela de tempo.
+- A atribuição das métricas do broker a cada run (antes feita recriando o Telegraf com
+  o `RUN_ID`) não podia continuar: o api não tem Docker para recriá-lo. Passou a ser
+  por janela de tempo, no [[ADR-0013]].

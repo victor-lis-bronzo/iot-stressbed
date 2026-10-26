@@ -443,3 +443,17 @@ maior que isso na prática, quebrar mais). "Pronto quando" é sempre verificáve
   `paramsToArgs`, adapter); manual — `launch` de connection-flood, injeção plain e
   secure, message-flood e payload gigante; 409 durante a run; runner recusando uma
   flag e a run encerrando sozinha.
+
+### Atribuir as métricas do broker à run pela janela de tempo e simplificar o script
+- Pronto quando: o Telegraf não é recriado durante um experimento e `broker_metrics`
+  não carrega `run_id`; o exportador, o dashboard do Grafana, o link da tela
+  `/ataques` e o `export_grafana.sh` recortam a run pela janela `[início, fim]`;
+  `run-experiment.sh` é cliente fino de `POST /experiments/runs/launch`. Ver
+  [[ADR-0013]] e [[ADR-0012]].
+- Depende de: Disparar ataques a partir do api (runner no attacker + endpoint `/launch`).
+- Tamanho: M.
+- Teste: pytest de `scripts/` (blocos do broker sem `run_id`, `render_flux` com `run_id`
+  opcional) e jest de `apps/web` (janela e URL do Grafana); manual — três runs pelo
+  script com o `CreatedAt` do Telegraf idêntico antes e depois,
+  `export_run_metrics.py --all` com CPU/memória das runs de Track B preenchidos, e
+  `export_grafana.sh` renderizando a janela da run.

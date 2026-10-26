@@ -128,7 +128,7 @@ Uma linha por `run_id`. Colunas e origem exata:
 | `malformed_publish_accepted` | `run_kpis.track_b_result` → `publish_accepted` | idem |
 | `malformed_disconnected_after_publish` | `run_kpis.track_b_result` → `disconnected_after_publish` | idem, booleano |
 | `malformed_broker_response_summary` | `run_kpis.track_b_result` → `broker_response_summary` | idem, texto livre |
-| `cpu_usage_percent_avg` | InfluxDB `broker_metrics`, campo `usage_percent` (tag `cpu = cpu-total`) | média no intervalo `[attack_started_at, attack_finished_at]` (ou `[started_at, ended_at]` fora de Track B), filtrado por `run_id` e `broker = mode` |
+| `cpu_usage_percent_avg` | InfluxDB `broker_metrics`, campo `usage_percent` (tag `cpu = cpu-total`) | média no intervalo `[attack_started_at, attack_finished_at]` (ou `[started_at, ended_at]` fora de Track B), filtrado por `broker = mode` e **só pela janela de tempo, sem `run_id`** ([[ADR-0013]]) |
 | `mem_usage_bytes_avg` | InfluxDB `broker_metrics`, campo `usage` | média no mesmo intervalo |
 | `mem_limit_bytes` | InfluxDB `broker_metrics`, campo `limit` | último valor no intervalo (constante durante a run) |
 | `net_rx_bytes_per_s_avg` | InfluxDB `broker_metrics`, campo `rx_bytes` | `derivative()` (bytes/s) média no intervalo — ver nota sobre Docker Desktop em "Casos de Borda" |
@@ -146,7 +146,7 @@ Não existe campo direto para esses dois KPIs — `broker_metrics` só registra
 `container_status` (tag, via `processors.enum` do telegraf) e `restart_count` (campo) por
 ponto de tempo. A derivação é puramente sobre a série de transições de `container_status`
 dentro da janela `[attack_started_at, attack_finished_at]` da run (campos de `run_kpis`),
-filtrada por `run_id` e `broker = mode`:
+filtrada por `broker = mode` (a janela identifica a run, [[ADR-0013]]):
 
 1. Ordenar os pontos de `broker_metrics` da run por `_time` crescente.
 2. **Degradação**: a primeira transição de `container_status` que sai de `running` para
