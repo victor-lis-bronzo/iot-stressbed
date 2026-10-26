@@ -11,8 +11,9 @@
 # attacker (Track A — injeção) já está aqui nesta branch. mock-sensor
 # (publisher de DESENVOLVIMENTO que simula telemetria, ver bloco abaixo)
 # também está aqui, mas é opt-in via profile `dev-tools` — não sobe com um
-# `docker compose up` normal. O disparo do attacker (injector.py) continua
-# SEMPRE manual, por design (ADR-0006) — não é afetado pelo bootstrap único.
+# `docker compose up` normal. O attacker NUNCA dispara sozinho (ADR-0006): sobe
+# como runner HTTP interno e só executa um ataque quando o nestjs-api manda, ao
+# iniciar uma run pelo dashboard (ADR-0012) — não é afetado pelo bootstrap único.
 #
 # Ver: docs/architecture.md, docs/specs/infra-resource-isolation.md,
 #      docs/adr/0004-cgroups-resource-isolation.md,
@@ -192,13 +193,30 @@ services:
     container_name: attacker
     hostname: attacker
 
-    # Sem restart: se o injetor sair, o container não deve reviver sozinho e
-    # mascarar o resultado. Atenção ao exit code: no secure, exit 0 é o resultado
-    # CORRETO (a injeção foi rejeitada) — ver docs/track-a-guide.md.
-    restart: "no"
+    # O container agora é o runner HTTP (ADR-0012): fica de pé esperando o
+    # nestjs-api mandar um ataque. `unless-stopped` para ele voltar se o runner
+    # cair; um ataque que falha NÃO derruba o container (roda como subprocesso).
+    # Atenção ao exit code: no secure, exit 0 é o resultado CORRETO (a injeção foi
+    # rejeitada) — ver docs/track-a-guide.md.
+    restart: unless-stopped
 
-    # Sem `ports`: é sempre cliente MQTT, nunca servidor — não expõe nada.
-    # Sem `healthcheck`: não há endpoint; o container fica ocioso por design.
+    # `expose` e NUNCA `ports`: o runner só é alcançável pela stressbed-net (o
+    # nestjs-api), não pelo host nem pela LAN do laboratório. Os ataques em si
+    # continuam sendo clientes MQTT.
+    expose:
+      - "8080"
+
+    # Python porque a imagem slim não tem curl/wget.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)"
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
 
     # Rede: dentro da stressbed-net os brokers são alcançáveis pelos hostnames
     # dos serviços (mosquitto-plain/mosquitto-secure) nas portas INTERNAS
@@ -222,19 +240,20 @@ services:
 
     # depends_on leve (sem condition): só ordena a subida para que um
     # `docker compose up attacker` isolado suba os brokers junto, evitando um
-    # "Connection refused" sem pista. O disparo continua sempre manual (ver CMD).
+    # "Connection refused" sem pista. O ataque só roda quando o api pede (ver CMD).
     depends_on:
       - mosquitto-plain
       - mosquitto-secure
 
-    # O CMD da imagem é `sleep infinity`: o container fica ocioso até ser
-    # disparado sob demanda via
-    #   docker compose exec attacker python python/injector.py --target ...
-    # O disparo é SEMPRE manual, NUNCA automático no `docker compose up`: uma
+    # O CMD da imagem é o runner HTTP (python/runner.py, ADR-0012): o container
+    # espera o nestjs-api e NUNCA dispara nada no `docker compose up`. Uma
     # publicação fora de uma run com attackType=injection seria gravada pelo
     # capture como source=legit, corrompendo o KPI de taxa de sucesso de injeção
     # e violando a run única ativa do ADR-0006. A orquestração correta
-    # (login -> start run -> disparo -> stop run) vive em scripts/run-experiment.sh.
+    # (start run -> ataque -> KPI -> stop run) vive no api: POST
+    # /experiments/runs/launch, usado pelo dashboard e por scripts/run-experiment.sh.
+    # `docker compose exec attacker python ...` ainda funciona para depuração, mas
+    # fora de uma run corrompe os KPIs.
 
     networks:
       - stressbed-net
@@ -351,6 +370,9 @@ services:
       INFLUXDB_TOKEN: ${INFLUXDB_TOKEN:-dev-only-influx-token}
       INFLUXDB_ORG: ${INFLUXDB_ORG:-stressbed}
       INFLUXDB_BUCKET: ${INFLUXDB_BUCKET:-stressbed}
+      # Runner HTTP do attacker (ADR-0012): o api orquestra a run e dispara o
+      # ataque por aqui; nunca toca no Docker.
+      ATTACKER_RUNNER_URL: ${ATTACKER_RUNNER_URL:-http://attacker:8080}
       CAPTURE_TOPIC: "#"
       CAPTURE_ENABLED: "true"
       CAPTURE_PLAIN_MQTT_HOST: mosquitto-plain
