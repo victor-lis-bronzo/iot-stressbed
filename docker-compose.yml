@@ -90,9 +90,12 @@ services:
     # distinguir "o broker caiu" de "a máquina toda travou".
     #
     # O cpuset exclui os núcleos da stack de observação (STACK_CPUSET) e do
-    # atacante (ATTACKER_CPUSET): é essa exclusão que reserva CPU para o host e
-    # mantém Grafana/InfluxDB coletando com o broker saturado.
-    cpuset: ${BROKER_PLAIN_CPUSET:-2}
+    # atacante (ATTACKER_CPUSET): é essa exclusão que mantém Grafana/InfluxDB
+    # coletando com o broker saturado. Os defaults assumem 4 núcleos (0 stack,
+    # 1 plain, 2 secure, 3 attacker) para o `docker compose up` funcionar sem
+    # `.env` em qualquer máquina com >= 4 núcleos; para 8 núcleos use
+    # infra/profiles/cores-8.env (ADR-0014).
+    cpuset: ${BROKER_PLAIN_CPUSET:-1}
     cpus: ${BROKER_PLAIN_CPUS:-1.0}
 
     # memswap_limit IGUAL a mem_limit = swap zero para o container: o ponto de
@@ -156,7 +159,7 @@ services:
 
     # Limites deliberadamente idênticos ao broker plain — ver o bloco de
     # isolamento de recursos acima.
-    cpuset: ${BROKER_SECURE_CPUSET:-3}
+    cpuset: ${BROKER_SECURE_CPUSET:-2}
     cpus: ${BROKER_SECURE_CPUS:-1.0}
     mem_limit: ${BROKER_SECURE_MEMORY:-256m}
     memswap_limit: ${BROKER_SECURE_MEMSWAP:-256m}
@@ -271,9 +274,10 @@ services:
     #
     # O cpuset (ATTACKER_CPUSET) é disjunto dos núcleos dos brokers e da stack de
     # observação: é essa exclusão que mantém Grafana/InfluxDB coletando enquanto
-    # o ataque satura o broker-alvo.
-    cpuset: ${ATTACKER_CPUSET:-4,5}
-    cpus: ${ATTACKER_CPUS:-2.0}
+    # o ataque satura o broker-alvo. No padrão de 4 núcleos o attacker tem 1
+    # núcleo (cpus 1.0); o perfil de 8 núcleos dá 2 (ADR-0014).
+    cpuset: ${ATTACKER_CPUSET:-3}
+    cpus: ${ATTACKER_CPUS:-1.0}
 
     # memswap_limit IGUAL a mem_limit = swap zero: o OOM do próprio atacante fica
     # determinístico, mesmo raciocínio dos brokers. NUNCA aumente MEMSWAP acima
@@ -331,7 +335,7 @@ services:
         max-size: "10m"
         max-file: "3"
 
-    cpuset: ${STACK_CPUSET:-0,1}
+    cpuset: ${STACK_CPUSET:-0}
     mem_limit: 128m
 
   # BACKEND NestJS: auth, sensors, capture, experiments, realtime. Dockerizado
@@ -405,7 +409,7 @@ services:
     # Núcleos reservados: mesma lógica de postgres/influxdb/grafana/telegraf —
     # a aplicação não compete com broker/atacante pelos mesmos núcleos
     # (ADR-0004).
-    cpuset: ${STACK_CPUSET:-0,1}
+    cpuset: ${STACK_CPUSET:-0}
 
     depends_on:
       postgres:
@@ -465,7 +469,7 @@ services:
         max-size: "10m"
         max-file: "3"
 
-    cpuset: ${STACK_CPUSET:-0,1}
+    cpuset: ${STACK_CPUSET:-0}
 
     depends_on:
       nestjs-api:
@@ -498,7 +502,7 @@ services:
 
     # Núcleos reservados: a stack de observação não compete com o broker pelos
     # mesmos núcleos (ADR-0004, user story 5 da spec).
-    cpuset: ${STACK_CPUSET:-0,1}
+    cpuset: ${STACK_CPUSET:-0}
 
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
@@ -537,7 +541,7 @@ services:
     networks:
       - stressbed-net
 
-    cpuset: ${STACK_CPUSET:-0,1}
+    cpuset: ${STACK_CPUSET:-0}
 
     healthcheck:
       test: ["CMD", "influx", "ping"]
@@ -594,7 +598,7 @@ services:
     networks:
       - stressbed-net
 
-    cpuset: ${STACK_CPUSET:-0,1}
+    cpuset: ${STACK_CPUSET:-0}
 
     depends_on:
       influxdb:
@@ -640,7 +644,7 @@ services:
     networks:
       - stressbed-net
 
-    cpuset: ${STACK_CPUSET:-0,1}
+    cpuset: ${STACK_CPUSET:-0}
 
   # Métricas de container -> InfluxDB (`broker_metrics`). CAMINHO INDEPENDENTE
   # (ADR-0003): depende apenas do socket do Docker e do InfluxDB, nunca do
@@ -682,7 +686,7 @@ services:
 
     # O coletor precisa continuar coletando justamente quando os núcleos do
     # broker estão saturados (ADR-0004).
-    cpuset: ${STACK_CPUSET:-0,1}
+    cpuset: ${STACK_CPUSET:-0}
 
     depends_on:
       influxdb:
