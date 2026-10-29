@@ -76,10 +76,12 @@ inconsistência de rotulação "Fase 3" → "Fase 4" nos documentos que a mencio
 
 - Este spec vive em `docs/specs/attacker-resource-limits.md`, seguindo o mesmo formato
   já usado pelos demais specs do projeto.
-- Os 5 valores de limite (`CPUSET=4,5`, `CPUS=2.0`, `MEMORY=512m`, `MEMSWAP=512m`,
-  `PIDS=2048`) são os já reservados no `.env.example` — este spec não os altera, só os
-  documenta com a justificativa de cada um relativo aos limites do broker (`256m`/`1.0`
-  CPU/`512` PIDs cada): o `attacker` recebe o dobro de memória e PIDs, e o dobro de CPU,
+- Os 5 valores de limite (`CPUSET=3`, `CPUS=1.0`, `MEMORY=512m`, `MEMSWAP=512m`,
+  `PIDS=2048`) são os do padrão de 4 núcleos ([[ADR-0014]]); o perfil de 8 núcleos
+  (`infra/profiles/cores-8.env`) usa `CPUSET=4,5` e `CPUS=2.0`. Este spec documenta a
+  justificativa de cada um relativo aos limites do broker (`256m`/`1.0` CPU/`512` PIDs
+  cada): o `attacker` recebe o dobro de memória e PIDs — e, no perfil de 8 núcleos, o
+  dobro de CPU (no de 4 ele tem 1 núcleo) —
   porque ele *gera* carga (múltiplas conexões/threads simuladas simultâneas) em vez de
   só recebê-la, e um `pids_limit` baixo demais faria o próprio limite de recurso
   interromper o ataque antes de ele atingir o broker-alvo — o que invalidaria a
@@ -91,8 +93,8 @@ inconsistência de rotulação "Fase 3" → "Fase 4" nos documentos que a mencio
   `docker-compose.yml`** nesta branch (Track A — injeção); fica reproduzido aqui
   como referência da justificativa de cada valor:
   ```yaml
-  cpuset: ${ATTACKER_CPUSET:-4,5}
-  cpus: ${ATTACKER_CPUS:-2.0}
+  cpuset: ${ATTACKER_CPUSET:-3}
+  cpus: ${ATTACKER_CPUS:-1.0}
   mem_limit: ${ATTACKER_MEMORY:-512m}
   memswap_limit: ${ATTACKER_MEMSWAP:-512m}
   pids_limit: ${ATTACKER_PIDS:-2048}

@@ -65,9 +65,11 @@ de observação, nunca cedidos integralmente ao broker ou ao atacante.
 - Limites de recurso aplicados via as chaves nativas do Compose equivalentes a
   `--cpuset-cpus`, `--cpus`, `--memory`, `--memory-swap` (igual a `--memory`) e
   `--pids-limit`, definidos por container e sobrescritíveis via variáveis de ambiente.
-- Núcleos 0-1 (ou os dois primeiros disponíveis) reservados implicitamente ao não
-  incluí-los no `cpuset` de broker e atacante — host, Docker daemon e stack de observação
-  competem só por esses núcleos, nunca pelos dedicados ao experimento.
+- O(s) núcleo(s) da stack de observação (`STACK_CPUSET`: o `0` no padrão de 4 núcleos,
+  `0,1` no perfil de 8) ficam fora do `cpuset` de broker e atacante — a stack de
+  observação compete só por eles, nunca pelos dedicados ao experimento ([[ADR-0014]]).
+  O host e o Docker daemon não são pinados; só o perfil de 8 núcleos deixa núcleos de
+  folga (6-7) que nenhum cpuset inclui.
 - Certificados TLS do broker secure gerados por `scripts/gen-certs.sh` (CA local +
   certificado de servidor), montados como volume no container `mosquitto-secure`.
 - Configuração de autenticação/ACL do broker secure via arquivo de senha e ACL nativos do

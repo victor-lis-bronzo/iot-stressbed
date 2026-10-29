@@ -152,7 +152,8 @@ testbed — em contraste com `attacker`, que é parte do experimento real
 Ver [[ADR-0004]] para a decisão completa. Resumo: `mosquitto-plain`, `mosquitto-secure`
 e `attacker` rodam com `cpuset`, `--cpus`, `--memory` (sem swap) e `--pids-limit` fixos
 no `docker-compose.yml`; núcleos de CPU são reservados fora do cpuset do experimento
-para host + stack de observação (Postgres, InfluxDB, Grafana, telegraf, nestjs-api).
+para a stack de observação (Postgres, InfluxDB, Grafana, telegraf, nestjs-api). O padrão
+assume 4 núcleos e há um perfil para 8 ([[ADR-0014]]).
 
 ## ADRs
 

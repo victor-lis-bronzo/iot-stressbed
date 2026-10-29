@@ -17,7 +17,9 @@ nproc                         # conferir o nº de núcleos vs. o mapa de cpuset 
 
 Os comandos abaixo assumem os valores default do `.env.example`
 (`MQTT_SECURE_USERNAME=stressbed`, `MQTT_SECURE_PASSWORD=change-me-mqtt-secure`,
-`GRAFANA_PORT=3001`, host de 8 núcleos). Ajuste se o seu `.env` divergir.
+`GRAFANA_PORT=3001`) e o padrão de 4 núcleos do compose (stack `0`, plain `1`,
+secure `2`, attacker `3`); com `--env-file infra/profiles/cores-8.env` os cpusets são
+os do perfil de 8 núcleos. Ajuste se o seu `.env` divergir.
 
 Alguns comandos usam um container descartável na rede `stressbed-net` como
 cliente MQTT, para não exigir `mosquitto-clients` instalado no host:
@@ -345,9 +347,11 @@ MSYS_NO_PATHCONV=1 docker inspect mosquitto-plain mosquitto-secure --format \
 Esperado, com os defaults do `.env.example`:
 
 ```
-/mosquitto-plain  cpuset=2 nanocpus=1000000000 mem=268435456 memswap=268435456 pids=512
-/mosquitto-secure cpuset=3 nanocpus=1000000000 mem=268435456 memswap=268435456 pids=512
+/mosquitto-plain  cpuset=1 nanocpus=1000000000 mem=268435456 memswap=268435456 pids=512
+/mosquitto-secure cpuset=2 nanocpus=1000000000 mem=268435456 memswap=268435456 pids=512
 ```
+
+(com o perfil de 8 núcleos: `cpuset=2` e `cpuset=3`)
 
 **Invariantes a conferir a cada mudança de `.env`:**
 1. `mem == memswap` (swap zero, OOM determinístico). Se `memswap > mem`, o

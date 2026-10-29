@@ -39,3 +39,11 @@ continue funcionando mesmo com o broker sob estresse máximo.
 - Qualquer novo tipo de ataque adicionado ao container `attacker` herda os mesmos
   limites de recurso do container — não é possível burlar o isolamento adicionando um
   novo modo de ataque sem também revisar os limites.
+
+## Atualização: padrão de 4 núcleos
+Os núcleos reservados deixaram de assumir um host de 8: o padrão do compose passou a ser
+o layout de 4 núcleos (stack `0`, plain `1`, secure `2`, attacker `3`), com o de 8
+núcleos como perfil opt-in (`infra/profiles/cores-8.env`). O princípio desta decisão não
+muda — broker, atacante e stack de observação nunca compartilham núcleo, e plain e
+secure têm recursos idênticos. Detalhes, medições e o que se perde com 4 núcleos (host
+sem folga, stack em 1 núcleo) estão no [[ADR-0014]].

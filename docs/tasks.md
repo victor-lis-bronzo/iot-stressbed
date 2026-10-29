@@ -471,3 +471,16 @@ maior que isso na prática, quebrar mais). "Pronto quando" é sempre verificáve
   `describeLaunchError`, `attackParams`); manual — as duas telas servem os botões após o
   login, o preflight de CORS do api responde 204, e um disparo pelo navegador termina com
   resultado e histórico preenchidos.
+
+### Padrão de 4 núcleos para subir sem `.env` em máquinas pequenas
+- Pronto quando: `docker compose up` sem `.env` não depende de mais de 4 núcleos (stack
+  `0`, plain `1`, secure `2`, attacker `3`, `ATTACKER_CPUS=1.0`), com plain, secure,
+  attacker e stack em núcleos disjuntos; o layout de 8 núcleos continua disponível em
+  `infra/profiles/cores-8.env`; o ADR-0014 registra o que se perde e o resultado da
+  medição de telemetria sob flood nos dois layouts. Ver issue #41, [[ADR-0014]] e a
+  atualização do [[ADR-0004]].
+- Depende de: Disparar ataques a partir do api (runner no attacker + endpoint `/launch`).
+- Tamanho: P.
+- Teste: `docker compose config` (cpusets ⊂ `{0..3}` e disjuntos), `docker inspect` dos
+  containers, e `message-flood`/`connection-flood` nos dois layouts comparando enviado ×
+  gravado; manual — `nproc` + `docker compose up` numa máquina de 4 núcleos reais.
