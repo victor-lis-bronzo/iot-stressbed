@@ -11,8 +11,14 @@ análise da Fase 5 — isso fica em documentos dedicados, linkados na seção
 - **Docker** e **Docker Compose** (plugin `compose`, não o `docker-compose` standalone).
   É a única dependência obrigatória — todo o resto (Node, Python, brokers) roda dentro
   dos containers.
-- **Python 3.x**, apenas se for rodar os scripts de `attacker/python` ou
-  `scripts/analysis` fora de container.
+- **Pelo menos 4 núcleos de CPU** (`nproc`). O compose fixa os containers do
+  experimento em núcleos específicos ([[ADR-0014]]): com menos de 4 o Docker recusa o
+  `up` (cpuset inexistente) e é preciso reescrever os cpusets no `.env`. Com 8
+  núcleos use o perfil pronto, que dá mais folga: `docker compose --env-file
+  infra/profiles/cores-8.env up -d`.
+- **Python 3.x**, apenas se for rodar os scripts de `scripts/analysis` fora de
+  container (os ataques de `attacker/python` já rodam dentro do container
+  `attacker`, disparados pelo dashboard ou por `run-experiment.sh`).
 - **`tcpdump`**, apenas se for capturar `.pcap` durante um experimento — detalhado no
   guia de Track A, não é necessário para subir o ambiente.
 
@@ -86,7 +92,9 @@ As variáveis estão agrupadas por serviço em `.env.example`, entre outras:
   menos privilegiado).
 - **Isolamento de recursos** ([[ADR-0004]]): `STACK_CPUSET`, `BROKER_PLAIN_CPUSET`/
   `BROKER_SECURE_CPUSET`, `ATTACKER_CPUSET`, e os respectivos `_CPUS`/`_MEMORY`/
-  `_PIDS` — mantêm broker, atacante e stack de observação em núcleos disjuntos.
+  `_PIDS` — mantêm broker, atacante e stack de observação em núcleos disjuntos. O
+  padrão assume 4 núcleos (stack `0`, plain `1`, secure `2`, attacker `3`); o perfil
+  `infra/profiles/cores-8.env` assume 8 ([[ADR-0014]]).
 - **Backend/frontend**: `JWT_SECRET`, `AUTH_ADMIN_EMAIL`/`AUTH_ADMIN_PASSWORD`,
   `API_PORT`, `WEB_PORT`, `NEXTAUTH_SECRET`.
 - **Capture** (subscriber nos dois brokers): `CAPTURE_TOPIC`, `CAPTURE_ENABLED`,

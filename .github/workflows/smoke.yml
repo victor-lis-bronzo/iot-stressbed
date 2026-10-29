@@ -23,10 +23,10 @@ jobs:
     # Estes envs são lidos pela interpolação do `docker compose` — NÃO criamos
     # `.env` (o objetivo do teste é justamente provar o bootstrap zero-config).
     env:
-      # Runners do GitHub têm poucos núcleos: o compose fixa cpuset assumindo
-      # >=6 cores (defaults 0,1 / 2 / 3 / 4,5). Os núcleos 2-5 não existem aqui e
-      # os containers falhariam ao iniciar. Reescrevemos para núcleos que sempre
-      # existem (0 e 1).
+      # Runners do GitHub podem ter só 2 núcleos: o compose fixa cpuset assumindo
+      # 4 (defaults 0 / 1 / 2 / 3, ADR-0014). Os núcleos 2-3 podem não existir
+      # aqui e os containers falhariam ao iniciar. Reescrevemos para núcleos que
+      # sempre existem (0 e 1).
       STACK_CPUSET: "0,1"
       BROKER_PLAIN_CPUSET: "0"
       BROKER_SECURE_CPUSET: "1"
